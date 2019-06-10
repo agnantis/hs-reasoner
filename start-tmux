@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+echo "Initializing environment for 'hs-reasoner' project..."
+
+SESSION=`basename $PWD`
+
+tmux -2 new-session -d -s $SESSION
+tmux send-keys "nix-shell" C-m
+tmux send-keys "cd src" C-m
+tmux send-keys "nvim" C-m
+tmux split-window -h
+tmux resize-pane -R 10
+tmux send-keys "nix-shell" C-m
+tmux send-keys "ghcid --command='cabal new-repl'" C-m
+tmux split-window -v
+sleep 5
+tmux send-keys "nix-shell" C-m
+tmux send-keys "cabal new-repl" C-m
+tmux split-window -v
+tmux send-keys "nix-shell" C-m
+tmux send-keys "find . -type f -name \"*.hs\" | entr hlint src/" C-m
+tmux split-window -v
+tmux send-keys "nix-shell" C-m
+tmux send-keys "find . -type f -name \"*.hs\" | entr doctest src/" C-m
+
+tmux select-pane -t:.0
+# tmux split-window -v
+# tmux send-keys "nvim res/example.owl" C-m
+# tmux resize-pane -D 8
+tmux -2 attach -t $SESSION
+tmux rename-window -t $SESSION:1 IDE

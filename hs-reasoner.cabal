@@ -1,0 +1,32 @@
+name:                hs-reasoner
+version:             0.1.0.0
+homepage:            https://github.com/agnantis/hs-reasoner
+license:             BSD3
+license-file:        LICENSE
+author:              Kostas Agnantis
+maintainer:          kagnadis@gmail.com
+copyright:           2019 Kostas Agnantis
+category:            Logic
+build-type:          Simple
+extra-source-files:  README.md
+cabal-version:       >=1.10
+
+library
+  build-depends:      base >= 4.7 && < 5
+                    , extensible-effects 
+                    , log-effect
+  hs-source-dirs:     src
+  ghc-options:        -Wall -Wno-simplifiable-class-constraints
+  exposed-modules:    Logic
+  default-language:   Haskell2010
+
+executable hs-reasoner-exe
+  hs-source-dirs:   app
+  main-is:          Main.hs
+  ghc-options:      -Wall -threaded -rtsopts -with-rtsopts=-N
+  build-depends:    base
+  default-language: Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/agnantis/hs-reasoner
