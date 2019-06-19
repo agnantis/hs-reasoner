@@ -1,4 +1,5 @@
-{ mkDerivation, base, extensible-effects, log-effect, stdenv, devDeps ? [ ], devSystemDeps ? [ ]
+{ mkDerivation, base, recursion-schemes, extensible-effects, microlens-platform, mtl
+, template-haskell, stdenv, devDeps ? [ ], devSystemDeps ? [ ]
 }:
 mkDerivation {
   pname = "hs-reasoner";
@@ -7,7 +8,7 @@ mkDerivation {
   isLibrary = true;
   isExecutable = true;
   buildDepends = devSystemDeps;
-  libraryHaskellDepends = [ base extensible-effects log-effect ] ++ devDeps;
+  libraryHaskellDepends = [ base extensible-effects microlens-platform mtl recursion-schemes template-haskell ] ++ devDeps;
   executableHaskellDepends = [ base ];
   homepage = "https://github.com/agnantis/hs-reasoner";
   license = stdenv.lib.licenses.bsd3;
