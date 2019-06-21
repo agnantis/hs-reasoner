@@ -15,7 +15,8 @@ module Logic where
 
 import Control.Eff
 import Control.Eff.State.Lazy
---import Control.Monad.State
+import Control.Eff.Writer.Lazy
+import Control.Monad                  (mapM_)
 import Data.Functor.Foldable          (cata, embed)
 import Data.Functor.Foldable.TH       (makeBaseFunctor)
 import Data.Maybe                     (isJust)
@@ -54,6 +55,8 @@ data Expansion
   = Branch [Concept]
   | Seq [Concept] deriving (Show)
 
+type KB = [Concept]
+type Interpretation = Maybe KB
 -- Some temaplte magic
 makeLenses ''TableauxState
 
@@ -153,36 +156,58 @@ addConcept c cs = case clashesWith c cs of
 --                       Just (Seq xs) ->  undefined
 --                       Just (Branch xs) -> undefined
 -- 
-solve :: Member (State TableauxState) r => Eff r (Maybe [Concept])
+solve :: ([Writer String, State TableauxState] <:: r) => Eff r Interpretation
 -- solve :: State TableauxState (Maybe [Concept])
 solve = do
   st@Tableaux{..} <- get
   case _frontier of
     []    -> do
-      put $ set status Completed st
-      pure . Just $ _kb
+      debugApp "Branch completed\n"
+      modify $ set status Completed -- ^ nothing to expand more
+      pure . Just $ _kb             -- ^ update status and return the interpretation
     (c:cs) ->
       case expandConcept c of
         Just(Seq cs') -> do -- ^ and block
-          put $ set frontier (cs' <> cs) st
+          debugApp "Conjunction found\n"
+          modify $ set frontier (cs' <> cs)
+          undefined
           solve
         Just(Branch cs') -> do -- ^ or block
-          let
-            newStates :: [TableauxState]
-            newStates = do -- ^ create branched states and run them
-              c' <- cs'
-              let st' = set frontier (c':cs) st
-              pure . run $ execState st' solve -- ^ solve each branch
-          pure $ getInterpretation newStates
+          debugApp "Disjunction found\n"
+          let newStates :: [(TableauxState, String)]
+              newStates = do -- ^ create branched states and run them
+                c' <- cs'
+                let st' = set frontier (c':cs) st
+                pure . run . runMonoidWriter . execState st' $ solve -- ^ solve each branch
+          mapM_ (debugApp . unlines . fmap ("   " <>) . lines .  snd) newStates
+          pure . getInterpretation . map fst $ newStates
         Nothing -> -- ^ no further expansion
           case clashesWith c _kb of
             Just z -> do -- ^ clash found; terminate this branch
-              put $ set status (ClashFound $ ClashException c z) st
+              modify $ set status (ClashFound $ ClashException c z)
+              debugApp . show $ ClashException c z
               pure Nothing
             Nothing -> do -- ^ No clash 
-              let st' = set frontier cs st -- ^ remove concept from frontier
-              put $ over kb (c:) st' -- ^ add concept to kb
+              debugApp $ "Adding " <> show c <> " to KB\n"
+              modify $ set frontier cs . over kb (c:) -- ^ remove concept from frontier
+                                                      -- ^ add concept to kb
               solve                 -- ^ and continue
+
+-- | Utility function to handle logging process
+-- **Attention**: Adding actual implementation (e.g. using writer or debug) will have as a
+-- result all the available branches to be actually expanded in order for the
+-- to be collected. For performance reasons the actual logging should be trigger only
+-- for debugging purposes
+--
+debugApp :: Member (Writer String) r => String -> Eff r () 
+debugApp = const . pure $ () -- ^ do nothing
+--debugApp = tell msg -- ^ log to writer
+--debugApp msg = trace msg (tell msg) -- ^ print to console and log to writer
+
+getInterpretation :: [TableauxState] -> Interpretation
+getInterpretation = safeHead      -- ^ a single interpretation is enough 
+                  . map (view kb) -- ^ extract their kb
+                  . filter ((== Completed) . view status) -- ^ get only the completed tableaux
 
 atomicA, atomicB, atomicC, atomicD :: Concept
 example1, example2, example3, example4 :: Concept
@@ -192,39 +217,29 @@ atomicC = Atomic "C"
 atomicD = Atomic "D"
 example1 = Not atomicA
 example2 = Conjunction atomicA atomicB
-example3 = Disjunction atomicA atomicB
+example3 = Disjunction atomicA (Conjunction atomicD atomicB)
 example4 = Conjunction atomicA example1
 
 
 initialState :: TableauxState
 initialState = Tableaux {
-    _frontier = [example4]
+    _frontier = [example3]
   , _kb = []
   , _status = Active
   }
 
-
-main :: Maybe [Concept]
-main = run $ evalState initialState solve 
-
---transferFrontierConceptToKB :: State TableauxState ()
---transferFrontierConceptToKB = do
---  st@Tableaux{..} <- get
---  case _frontier of
---    [] -> pure ()
---    (c:cs) -> do
---      let st' = set frontier cs st
---      put $ over kb (c:) st'
-
-
---  if null _frontier 
---  then pure . Just $ kb  -- set status Completed st
---  else undefined
-
-getInterpretation :: [TableauxState] -> Maybe [Concept]
-getInterpretation = safeHead -- a single interpretation is enough 
-                  . map (view kb) -- extract their kb
-                  . filter ((== Completed) . view status) -- get only the completed tableaux
+main :: IO () -- (Interpretation, String)
+main = do
+  let (intrp, logs) = run . evalState initialState . runMonoidWriter $ solve 
+      theLines = [ ("Concept: " <> ) . pPrint . head . view frontier $ initialState
+                 , "**Logging**"
+                 , "-----------"
+                 , ""
+                 , logs
+                 , "-----------"
+                 , "Interpretation: " <> show intrp
+                 ]
+  mapM_ putStrLn theLines
 
 -- getLogLevel :: (Member (Reader Config) r, Member (Reader Connection) r) => String -> Eff r String
 
