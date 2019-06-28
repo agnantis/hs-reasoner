@@ -14,21 +14,23 @@ module Logic where
 
 --import Prelude                        hiding (head, tail)
 
-import Control.Eff
-import Control.Eff.State.Lazy
-import Control.Eff.Writer.Lazy
-import Control.Monad                  (mapM_)
-import Data.Functor.Foldable          (cata, embed)
-import Data.Functor.Foldable.TH       (makeBaseFunctor)
-import Data.Maybe                     (isJust)
-import Lens.Micro.Platform
+import           Control.Eff
+import           Control.Eff.State.Lazy
+import           Control.Eff.Writer.Lazy
+import           Control.Monad                  (mapM_)
+import           Data.Functor.Foldable          (cata, embed)
+import           Data.Functor.Foldable.TH       (makeBaseFunctor)
+import           Data.List                      (intercalate)
+import qualified Data.Map.Strict                                    as M
+import           Data.Maybe                     (isJust, mapMaybe)
+import           Lens.Micro.Platform
 
 import Debug.Trace
 
 type Label = String
 newtype Individual = Individual Label deriving (Show, Eq)
 
-newtype Role = Role Label deriving (Show, Eq)
+newtype Role = Role Label deriving (Show, Eq, Ord)
 
 data Concept
   = Conjunction Concept Concept -- ^ AND
@@ -38,7 +40,7 @@ data Concept
   | IfOnlyIf Concept Concept    -- ^ A <-> B
   | AtLeast Role Concept        -- ^ R.C
   | ForAll Role Concept         -- ^ R.C
-  | Atomic Label deriving (Show, Eq)
+  | Atomic Label deriving (Show, Eq, Ord)
 
 makeBaseFunctor ''Concept
 
@@ -48,6 +50,8 @@ data CGI
 
 --type TBox = [CGI]
 
+type UniRole = (Role, Concept) -- ^ Represents a ∀R.C (i.e. (R,C)
+type IndRole = (Individual, Role) -- ^ Represents a filler of a role
 
   
 data ClashException = ClashException Assertion Assertion deriving (Eq)
@@ -55,18 +59,19 @@ instance Show ClashException where
   show (ClashException c1 c2) = "Clash found between '" ++ show c1 ++ "' and '" ++ show c2 ++ "'"
 
 data TableauxState = Tableaux
-  { _frontier :: [Assertion] -- ^ Concepts to be expanded
-  --, _kb       :: [Concept] -- ^ In practice, it holds all the true and false atomic concepts
+  { _frontier :: [Assertion] -- ^ Assertions to be expanded
   , _intrp    :: [Assertion] -- ^ The current interpretation
   , _inds     :: [Individual] -- ^ individuals in scope
   , _status   :: TableauxStatus -- ^ The state of the specific path
-  , _roles    :: [Assertion] -- ^ It should hold all the roles 
-  , _uniq     :: [Int] -- ^ A generator of uniq ids
+  , _roles    :: [UniRole] -- ^ It holds all visited universal role 
+  , _indRoles :: [IndRole] -- ^ It holds all the filler individual
+  , _uniq     :: [String] -- ^ A generator of uniq ids
   } deriving (Show)
 
 data Assertion
   = CAssertion Concept Individual
-  | RAssertion Role Individual Individual deriving (Show, Eq)
+  | RAssertion Role Individual Individual
+  | RInvAssertion Role Individual Individual deriving (Show, Eq)
 
 type TBox = [Concept]
 type ABox = [Assertion]
@@ -112,16 +117,33 @@ makeLenses ''TableauxState
 --   embed (IfOnlyIfF a b)    = (IfOnlyIf a) b
 --   embed (AtomicF a)        = Atomic a
 
--- Various traversal
 
-class DLogic a where
+class Eq a => DLogic a where
+  -- | Returns its inverse
+  --
+  -- >>> inverse $ Not (Atomic "A")
+  -- Atomic "A"
   inverse :: a -> a
+
+  -- | Checks if two elements are complement to each other
+  --
+  -- >>> Atomic "A" `isComplement` Not (Atomic "A")
+  -- True
+  --
+  -- >>> Atomic "A" `isComplement` Atomic "A"
+  -- False
+  --
+  isComplement :: a -> a -> Bool
+  x `isComplement` y = x == inverse y
 
 class Pretty a where
   pPrint :: a -> String
 
 -- | Simple pretty print function
 --
+instance (Pretty a, Pretty b) => Pretty (a,b) where
+  pPrint (a, b) = "(" ++ pPrint a ++ "," ++ pPrint b ++ ")"
+
 instance Pretty Concept where
   pPrint = cata algebra
    where
@@ -131,13 +153,66 @@ instance Pretty Concept where
     algebra (NotF a)           = "(" ++ "¬" ++ a ++ ")"
     algebra (ImpliesF a b)     = "(" ++ a ++ " → " ++ b ++ ")"
     algebra (IfOnlyIfF a b)    = "(" ++ a ++ " ↔ " ++ b ++ ")"
-    algebra (AtLeastF r c)     = "(" ++ "∃" ++ show r ++ "." ++ c ++ ")"
-    algebra (ForAllF r c)      = "(" ++ "∀" ++ show r ++ "." ++ c ++ ")"
+    algebra (AtLeastF r c)     = "(" ++ "∃" ++ pPrint r ++ "." ++ c ++ ")"
+    algebra (ForAllF r c)      = "(" ++ "∀" ++ pPrint r ++ "." ++ c ++ ")"
     algebra (AtomicF a)        = a
 
 instance Pretty CGI where
   pPrint (Subsumes a b) = pPrint a ++ " ⊑ " ++ pPrint b
   pPrint (Equivalent a b) = pPrint a ++ " ≡ " ++ pPrint b
+
+instance Pretty Individual where
+  pPrint (Individual i) = i
+
+instance Pretty Role where
+  pPrint (Role r) = r
+
+instance Pretty Assertion where
+  pPrint (CAssertion c _) = pPrint c
+  pPrint (RAssertion r a b) = pPrint r ++ "(" ++ pPrint a ++ "," ++ pPrint b ++ ")"
+  pPrint (RInvAssertion r a b) = "¬" ++ pPrint (RAssertion r a b)
+
+instance Pretty TableauxState where
+  pPrint Tableaux{..} = intercalate "; " [delta, rls, cnt]
+   where
+    join :: Pretty a => [a] -> String
+    join = intercalate ", " . fmap pPrint
+    delta = "∆ = {" ++ join _inds ++ "}"
+    rls = printMapOfRoles . mapOfRoles $ _intrp
+    cnt = printMapOfConcepts . mapOfConcepts $ _intrp
+
+printMapOfConcepts :: M.Map Concept [Individual] -> String
+printMapOfConcepts = intercalate ", " . fmap showPair . M.toList
+ where
+  showPair (c, inds) = pPrint c ++ " = {" ++ intercalate ", " (pPrint <$> inds) ++ "}"
+
+mapOfConcepts :: [Assertion] -> M.Map Concept [Individual]
+mapOfConcepts = M.fromListWith (++) . mapMaybe fltr
+ where
+   fltr (CAssertion c a) = Just (c, [a])
+   fltr _ = Nothing
+
+printMapOfRoles :: M.Map Role [(Individual, Individual)] -> String
+printMapOfRoles = intercalate ", " . fmap showPair . M.toList
+ where
+  showPair (r, indPairList) = pPrint r ++ " = {" ++ intercalate ", " (pPrint <$> indPairList) ++ "}"
+
+mapOfRoles :: [Assertion] -> M.Map Role [(Individual, Individual)]
+mapOfRoles = M.fromListWith (++) . mapMaybe fltr
+ where
+   -- TODO: Support inverse roles
+   fltr (RAssertion r a b) = Just (r, [(a, b)])
+   fltr _ = Nothing
+
+
+isRoleAssertion :: Assertion -> Bool
+isRoleAssertion RAssertion{} = True
+isRoleAssertion RInvAssertion{} = True
+isRoleAssertion _ = False
+
+isConceptAssertion :: Assertion -> Bool
+isConceptAssertion CAssertion{} = True
+isConceptAssertion _ = False
 
 initialize :: TBox -> ABox
 initialize = 
@@ -163,17 +238,31 @@ toDNF = cata algebra
 
 -- | Tablaux expansion rules
 --
-expandConcept :: Member (State TableauxState) r => Assertion -> Eff r (Maybe Expansion)
-expandConcept = \case
-  CAssertion (Conjunction a b) x -> pure . Just $ Seq [CAssertion a x, CAssertion b x]
-  CAssertion (Disjunction a b) x -> pure . Just $ Branch [CAssertion a x, CAssertion b x]
+expandAssertion :: Member (State TableauxState) r => Assertion -> Eff r (Maybe Expansion)
+expandAssertion = \case
+  CAssertion (Conjunction a b) x -> pure . Just . Seq $ [CAssertion a x, CAssertion b x]
+  CAssertion (Disjunction a b) x -> pure . Just . Branch $ [CAssertion a x, CAssertion b x]
   CAssertion (AtLeast r c) x -> do 
     z <- newIndividual
-    pure . Just $ Seq [RAssertion r x z, CAssertion c z]
+    st <- get
+    put $ (inds %~ (z:)) st -- insert new individual
+    pure . Just . Seq $ [RAssertion r x z, CAssertion c z]
   CAssertion (ForAll r c) x -> do
-    fils <- fillers r x -- find all existing fillers of R(_, i)
+    fils <- fillers r -- find all existing fillers of R(_, i)
     let assertions = fmap (CAssertion c) fils -- add assertions for them
-    pure . Just . Seq $ assertions
+    st <- get
+    put $ (roles %~ ((r, c):)) st -- insert the new universal role
+    st <- get
+    put $ (frontier %~ (assertions<>)) st -- add all new assertions
+    pure . Just . Seq $ []
+  a@(RAssertion r _ f) -> do
+    cpts <- forAllRoles r
+    let assertions = fmap (flip CAssertion f) cpts -- add assertions for them
+    st <- get
+    put $ (indRoles %~ ((f, r):)) st -- insert the new universal role
+    st <- get
+    put $ (frontier %~ (assertions<>)) st -- add all new assertions
+    pure Nothing
   _ -> pure Nothing
 
 instance DLogic Concept where
@@ -182,22 +271,9 @@ instance DLogic Concept where
 
 instance DLogic Assertion where
   inverse (CAssertion c i) = CAssertion (inverse c) i
-  -- TODO: what about RAssertions
+  inverse (RAssertion r a b) = RInvAssertion r a b
+  inverse (RInvAssertion r a b) = RAssertion r a b
   
-
--- | Checks if two are compement
---
--- >>> c1 = Atomic "A"
--- >>> c2 = Not (Atomic "A")
--- >>> c1 `isComplement` c2
--- True
---
--- >>> c1 `isComplement` c1
--- False
---
-isComplement :: Assertion -> Assertion -> Bool
-isComplement c1 c2 = c1 == inverse c2
-
 -- | Checks if a concept (first argument) clashes with any of the concepts of the list
 --
 clashesWith :: Assertion -> [Assertion] -> Maybe Assertion
@@ -210,22 +286,34 @@ clashExists c = isJust . clashesWith c
 
 -- | Returns the next uniq number of the state
 --
-nextUniq :: Member (State TableauxState) r => Eff r Int
+nextUniq :: Member (State TableauxState) r => Eff r String
 nextUniq = do
   st <- get
   let (unq:rest) = view uniq st
   put $ set uniq rest st
   pure unq
 
--- | Returns all the known filler individual iof the provided role
+-- | Returns all the known filler individual of the provided role
 --
-fillers :: Member (State TableauxState) r => Role -> Individual -> Eff r [Individual]
-fillers rl ind = do
+fillers :: Member (State TableauxState) r => Role -> Eff r [Individual]
+fillers rl = do
   st <- get
-  let ids = fmap (\(RAssertion _ _ b) -> b)
-           . filter (\(RAssertion r a _) -> r == rl && a == ind)
-           $ view roles st
+  let ids = fmap fst
+           . filter ((rl ==) . snd)
+           . view indRoles
+           $ st
   pure ids
+
+-- | Returns all known concept that are imposed for a specific role
+--
+forAllRoles :: Member (State TableauxState ) r => Role -> Eff r [Concept]
+forAllRoles rl = do
+  st <- get
+  let existingRoles = fmap snd
+                    . filter ((rl ==) . fst)
+                    . view roles
+                    $ st
+  pure existingRoles
 
 solve :: ([Writer String, State TableauxState] <:: r) => Eff r Interpretation
 solve = do
@@ -236,7 +324,7 @@ solve = do
       modify $ set status Completed -- nothing to expand more
       pure . Just $ _intrp          -- update status and return the interpretation
     (c:cs) -> do
-      res <- expandConcept c
+      res <- expandAssertion c
       case res of
         Just(Seq cs') -> do -- and block
           debugApp "Conjunction found\n"
@@ -267,7 +355,7 @@ solve = do
 -- | Creates a new individual
 --
 newIndividual :: Member (State TableauxState) r => Eff r Individual
-newIndividual = Individual . show <$> nextUniq
+newIndividual = Individual <$> nextUniq
 
 -- | Utility function to handle logging process
 -- **Attention**: Adding actual implementation (e.g. using writer or debug) will have as a
@@ -286,10 +374,10 @@ debugApp = const . pure $ () -- do nothing
 getInterpretation :: [TableauxState] -> Interpretation
 getInterpretation = safeHead      -- a single interpretation is enough 
                   . map (view intrp) -- extract their interpretation
-                  . filter ((/= Active) . view status) -- get only the completed tableaux
+                  . filter ((== Completed) . view status) -- get only the completed tableaux
 
 atomicA, atomicB, atomicC, atomicD :: Concept
-example1, example2, example3, example4 :: Concept
+example1, example2, example3, example4, example5 :: Concept
 atomicA = Atomic "A"
 atomicB = Atomic "B"
 atomicC = Atomic "C"
@@ -298,28 +386,34 @@ example1 = Not atomicA
 example2 = Conjunction atomicA atomicB
 example3 = Disjunction atomicA (Conjunction atomicD atomicB)
 example4 = Conjunction atomicA example1
+rl :: Role
+rl = Role "R"
+example5 = Conjunction (Conjunction (AtLeast rl atomicA) (AtLeast rl atomicB)) (Not (AtLeast rl (Conjunction atomicA atomicB)))
 
+initialIndividual :: Individual
+initialIndividual = Individual "a"
 
 initialState :: TableauxState
 initialState = Tableaux {
-    _frontier = [CAssertion example3 (Individual "007")]
+    _frontier = [CAssertion (toDNF example5) initialIndividual]
   , _intrp    = []
-  , _inds     = []
+  , _inds     = [initialIndividual]
   , _status   = Active
   , _roles    = []
-  , _uniq     = [1..]
+  , _indRoles = []
+  , _uniq     = (\i a -> a:show i) <$> [0..] <*> ['a'..'z'] 
   }
 
 main :: IO () -- (Interpretation, String)
 main = do
-  let (intrp, logs) = run . evalState initialState . runMonoidWriter $ solve 
-      theLines = [ ("Concept: " <> ) . show . head . view frontier $ initialState
+  let ((interp, logs), st) = run . runState initialState . runMonoidWriter $ solve 
+      theLines = [ ("Concept: " <> ) . pPrint . head . view frontier $ initialState
                  , "**Logging**"
                  , "-----------"
                  , ""
                  , logs
                  , "-----------"
-                 , "Interpretation: " <> show intrp
+                 , "Interpretation: " <> pPrint st
                  ]
   mapM_ putStrLn theLines
 

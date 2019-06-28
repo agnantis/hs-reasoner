@@ -13,6 +13,7 @@ cabal-version:       >=1.10
 
 library
   build-depends:      base >= 4.7 && < 5
+                    , containers
                     , extensible-effects 
                     , microlens-platform
                     , mtl
