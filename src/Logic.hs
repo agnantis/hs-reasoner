@@ -54,9 +54,7 @@ type UniRole = (Role, Concept) -- ^ Represents a ∀R.C (i.e. (R,C)
 type IndRole = (Individual, Role) -- ^ Represents a filler of a role
 
   
-data ClashException = ClashException Assertion Assertion deriving (Eq)
-instance Show ClashException where
-  show (ClashException c1 c2) = "Clash found between '" ++ show c1 ++ "' and '" ++ show c2 ++ "'"
+data ClashException = ClashException Assertion Assertion deriving (Eq, Show)
 
 data TableauxState = Tableaux
   { _frontier :: [Assertion] -- ^ Assertions to be expanded
@@ -81,9 +79,7 @@ data TableauxStatus
   | Completed
   | Active deriving (Show, Eq)
 
-data Expansion
-  = Branch [Assertion]
-  | Seq [Assertion] deriving (Show)
+type Branch = (Assertion, Assertion)
 
 type KB = [Assertion]
 type Interpretation = Maybe KB
@@ -168,12 +164,15 @@ instance Pretty Role where
   pPrint (Role r) = r
 
 instance Pretty Assertion where
-  pPrint (CAssertion c _) = pPrint c
+  pPrint (CAssertion c a) = pPrint c ++ "(" ++ pPrint a ++ ")"
   pPrint (RAssertion r a b) = pPrint r ++ "(" ++ pPrint a ++ "," ++ pPrint b ++ ")"
   pPrint (RInvAssertion r a b) = "¬" ++ pPrint (RAssertion r a b)
 
+instance Pretty ClashException where
+  pPrint (ClashException c1 c2) = "Clash found between '" ++ pPrint c1 ++ "' and '" ++ pPrint c2 ++ "'"
+
 instance Pretty TableauxState where
-  pPrint Tableaux{..} = intercalate "; " [delta, rls, cnt]
+  pPrint Tableaux{..} = intercalate "; " [show _status, delta, rls, cnt]
    where
     join :: Pretty a => [a] -> String
     join = intercalate ", " . fmap pPrint
@@ -238,32 +237,50 @@ toDNF = cata algebra
 
 -- | Tablaux expansion rules
 --
-expandAssertion :: Member (State TableauxState) r => Assertion -> Eff r (Maybe Expansion)
+expandAssertion :: ([Writer String, State TableauxState] <:: r) 
+                => Assertion
+                -> Eff r (Either ClashException (Maybe Branch))
 expandAssertion = \case
-  CAssertion (Conjunction a b) x -> pure . Just . Seq $ [CAssertion a x, CAssertion b x]
-  CAssertion (Disjunction a b) x -> pure . Just . Branch $ [CAssertion a x, CAssertion b x]
+  CAssertion (Disjunction a b) x -> do
+    debugAppLn "Disjunction found"
+    pure . Right . Just $ (CAssertion a x, CAssertion b x)
+  CAssertion (Conjunction a b) x -> do 
+    let newAssertions = [CAssertion a x, CAssertion b x]
+    modify $ frontier %~ (newAssertions<>) -- break assertions and add them
+    pure . Right $ Nothing
   CAssertion (AtLeast r c) x -> do 
     z <- newIndividual
-    st <- get
-    put $ (inds %~ (z:)) st -- insert new individual
-    pure . Just . Seq $ [RAssertion r x z, CAssertion c z]
+    modify $ inds %~ (z:) -- insert new individual
+    let newAssertions = [RAssertion r x z, CAssertion c z]
+    modify $ frontier %~ (newAssertions<>)
+    pure . Right $ Nothing
   CAssertion (ForAll r c) x -> do
     fils <- fillers r -- find all existing fillers of R(_, i)
     let assertions = fmap (CAssertion c) fils -- add assertions for them
-    st <- get
-    put $ (roles %~ ((r, c):)) st -- insert the new universal role
-    st <- get
-    put $ (frontier %~ (assertions<>)) st -- add all new assertions
-    pure . Just . Seq $ []
-  a@(RAssertion r _ f) -> do
+    modify $ roles %~ ((r, c):) -- insert the new universal role
+    modify $ frontier %~ (assertions<>) -- add all new assertions
+    pure . Right $ Nothing
+  a@(RAssertion r o f) -> do
     cpts <- forAllRoles r
     let assertions = fmap (flip CAssertion f) cpts -- add assertions for them
+    modify $ indRoles %~ ((f, r):) -- insert the new universal role
+    modify $ frontier %~ (assertions<>) -- add all new assertions
+    modify $ intrp %~ (a:) -- add role assertion
+    pure . Right $ Nothing
+  ci@(CAssertion c x) -> do
     st <- get
-    put $ (indRoles %~ ((f, r):)) st -- insert the new universal role
-    st <- get
-    put $ (frontier %~ (assertions<>)) st -- add all new assertions
-    pure Nothing
-  _ -> pure Nothing
+    case clashesWith ci (view intrp st)  of
+      Just z -> do -- clash found; terminate this branch
+        let exc = ClashException ci z
+        modify $ set status (ClashFound exc)
+        debugAppLn . pPrint $ exc
+        pure . Left $ exc
+      Nothing -> do -- No clash 
+        debugAppLn $ "Adding " <> pPrint ci <> " to Interpretation"
+        modify $ intrp %~ (ci:) -- add assertion to interpretarion
+        -- modify $ set frontier cs . over intrp (c:) -- remove concept from frontier
+        pure . Right $ Nothing
+
 
 instance DLogic Concept where
   -- | Inverse a concept. After the inversion conversion to dnf takes place
@@ -320,36 +337,34 @@ solve = do
   st@Tableaux{..} <- get
   case _frontier of
     []    -> do
-      debugApp "Branch completed\n"
+      debugAppLn "Branch completed"
       modify $ set status Completed -- nothing to expand more
       pure . Just $ _intrp          -- update status and return the interpretation
     (c:cs) -> do
+      debugAppLn $ "Current: " ++ pPrint c
+      modify $ set frontier cs -- remove assertion from frontier
       res <- expandAssertion c
       case res of
-        Just(Seq cs') -> do -- and block
-          debugApp "Conjunction found\n"
-          modify $ set frontier (cs' <> cs)
-          solve
-        Just(Branch cs') -> do -- or block
-          debugApp "Disjunction found\n"
+        Right(Just(a, b)) -> do -- or block
           let newStates :: [(TableauxState, String)]
               newStates = do -- create branched states and run them
-                c' <- cs'
+                c' <- [a,b]
                 let st' = set frontier (c':cs) st
                 pure . run . runMonoidWriter . execState st' $ solve -- solve each branch
-          mapM_ (debugApp . unlines . fmap ("   " <>) . lines .  snd) newStates
-          pure . getInterpretation . map fst $ newStates
-        Nothing -> -- no further expansion
-          case clashesWith c _intrp of
-            Just z -> do -- clash found; terminate this branch
-              modify $ set status (ClashFound $ ClashException c z)
-              debugApp . show $ ClashException c z
-              pure Nothing
-            Nothing -> do -- No clash 
-              debugApp $ "Adding " <> show c <> " to KB\n"
-              modify $ set frontier cs . over intrp (c:) -- remove concept from frontier
-                                                      -- add concept to kb
-              solve                 -- and continue
+          mapM_ (debugAppLn . unlines . fmap ("   " <>) . lines .  snd) newStates
+          case getInterpretation . map fst $ newStates of
+            (Just state) -> do
+              put state -- set the state as the final one
+              pure . Just . view intrp $ state -- return its interpretation
+            Nothing -> do
+              put . head . map fst $ newStates -- all branches clash. Just select one of them
+              pure Nothing -- no valid interpretation
+
+        Right Nothing -> do -- no further expansion
+          stt <- get
+          debugAppLn $ "Remaining assertions: " ++ (show . length . view frontier $ stt)
+          solve -- continue
+        Left exc -> pure Nothing -- clash found; temrinate execution
 
 
 -- | Creates a new individual
@@ -363,17 +378,20 @@ newIndividual = Individual <$> nextUniq
 -- to be collected. For performance reasons the actual logging should be trigger only
 -- for debugging purposes
 --
+debugAppLn :: Member (Writer String) r => String -> Eff r () 
+debugAppLn = debugApp . flip (++) "\n" 
+
 debugApp :: Member (Writer String) r => String -> Eff r () 
-debugApp = const . pure $ () -- do nothing
---debugApp = tell msg -- log to writer
+--debugApp = const . pure $ () -- do nothing
+debugApp = tell -- log to writer
 --debugApp msg = trace msg (tell msg) -- print to console and log to writer
 
 -- | Provided a list of @TableauxState it tries to find and return the first
 -- clash-free completed interpretation
 --
-getInterpretation :: [TableauxState] -> Interpretation
+getInterpretation :: [TableauxState] -> Maybe TableauxState
 getInterpretation = safeHead      -- a single interpretation is enough 
-                  . map (view intrp) -- extract their interpretation
+                  -- . map (view intrp) -- extract their interpretation
                   . filter ((== Completed) . view status) -- get only the completed tableaux
 
 atomicA, atomicB, atomicC, atomicD :: Concept
