@@ -17,10 +17,10 @@ module Logic where
 import           Control.Eff
 import           Control.Eff.State.Lazy
 import           Control.Eff.Writer.Lazy
-import           Control.Monad                  (mapM_)
+import           Control.Monad                  (guard, mapM_)
 import           Data.Functor.Foldable          (cata, embed)
 import           Data.Functor.Foldable.TH       (makeBaseFunctor)
-import           Data.List                      (intercalate)
+import           Data.List                      (intercalate, intersect)
 import qualified Data.Map.Strict                                    as M
 import           Data.Maybe                     (isJust, mapMaybe)
 import           Lens.Micro.Platform
@@ -249,7 +249,9 @@ expandAssertion = \case
     modify $ frontier %~ (newAssertions<>) -- break assertions and add them
     pure . Right $ Nothing
   CAssertion (AtLeast r c) x -> do 
-    z <- newIndividual
+    indExists <- fillerExists r c
+    guard $ not indExists
+    z <- newIndividual -- TODO: we should not always get a new individual; We should check if one already exists
     modify $ inds %~ (z:) -- insert new individual
     let newAssertions = [RAssertion r x z, CAssertion c z]
     modify $ frontier %~ (newAssertions<>)
@@ -320,6 +322,26 @@ fillers rl = do
            . view indRoles
            $ st
   pure ids
+
+conceptIndividuals :: Member (State TableauxState) r => Concept -> Eff r [Individual]
+conceptIndividuals c = do
+  st <- get
+  let ids = mapMaybe (filterCAssertions c)
+          . view intrp
+          $ st
+  pure ids
+ where
+   filterCAssertions :: Concept -> Assertion -> Maybe Individual
+   filterCAssertions cn (CAssertion concept ind) = if cn == concept then Just ind else Nothing
+   filterCAssertions _ _                         = Nothing
+  
+
+fillerExists :: Member (State TableauxState) r => Role -> Concept -> Eff r Bool
+fillerExists rl c = do
+  indsA <- fillers rl
+  indsB <- conceptIndividuals c
+  pure . not . null $ intersect indsA indsB
+
 
 -- | Returns all known concept that are imposed for a specific role
 --
