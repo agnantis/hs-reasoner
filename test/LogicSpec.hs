@@ -31,13 +31,9 @@ instance Arbitrary Role where
   arbitrary = Role <$> arbitrary
 
 
-spec :: Spec
-spec = 
-  describe "inverse" $ 
-    context "when inversed" $ 
-      it "is like id" $ property $
-        \x -> (inverse . inverse) (toDNF x) == (x :: Concept)
-
+-------------------------
+-- Auxiliary functions --
+-------------------------
 
 vegan, person, vegeterian, plant, diary :: Concept
 vegan      = Atomic "vegan"
@@ -49,9 +45,53 @@ diary      = Atomic "diary"
 eats :: Role
 eats = Role "eats"
 
-cgis :: [CGI]
-cgis = let
-         a = Equivalent vegan (Conjunction person (ForAll eats plant))
-         b = Equivalent vegeterian (Conjunction person (ForAll eats (Disjunction plant diary)))
-       in [a,b]
+veganClass :: CGI
+veganClass = Equivalent vegan (Conjunction person (ForAll eats plant))
+
+vegetarianClass :: CGI
+vegetarianClass = Equivalent vegeterian (Conjunction person (ForAll eats (Disjunction plant diary)))
+
+vegeterianIsVegan :: CGI
+vegeterianIsVegan = Subsumes vegan vegeterian
+
+veganIsVegeterian :: CGI
+veganIsVegeterian = Subsumes vegeterian vegan 
+
+testState :: TableauxState
+testState = initialState {
+    _frontier = [CAssertion x initialIndividual | x <- asrts] -- [CAssertion (toDNF asrts) initialIndividual]
+  , _intrp    = []
+  , _inds     = [initialIndividual]
+  , _status   = Active
+  , _roles    = []
+  , _indRoles = []
+  , _uniq     = uniqueIdentifierPool
+  }
+ where
+  --asrts = fmap (toDNF . cgiToConcept) [veganClass, vegetarianClass, veganIsVegeterian]
+  asrts = fmap (toDNF . cgiToConcept) [veganClass] --, vegetarianClass, vegeterianIsVegan]
+
+----------------------
+-- Property testing --
+----------------------
+
+spec :: Spec
+spec = do
+  props
+  unitTests
+
+props :: Spec
+props = 
+  describe "inverse" $ 
+    it "when inversed is like id" $
+      property $ \x -> (inverse . inverse) (toDNF x) == toDNF (x :: Concept)
+
+unitTests :: Spec
+unitTests = 
+  describe "Model" $ do
+    it "should not exist" $
+      modelExists testState `shouldBe` show testState
+------------------
+-- Unit testing --
+------------------
 

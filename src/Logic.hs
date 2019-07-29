@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -10,6 +11,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeOperators #-}
 
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Logic where
 
 --import Prelude                        hiding (head, tail)
@@ -17,7 +21,7 @@ module Logic where
 import           Control.Eff
 import           Control.Eff.State.Lazy
 import           Control.Eff.Writer.Lazy
-import           Control.Monad                  (guard, mapM_)
+import           Control.Monad                  (mapM_)
 import           Data.Functor.Foldable          (cata, embed)
 import           Data.Functor.Foldable.TH       (makeBaseFunctor)
 import           Data.List                      (intercalate, intersect)
@@ -25,7 +29,7 @@ import qualified Data.Map.Strict                                    as M
 import           Data.Maybe                     (isJust, mapMaybe)
 import           Lens.Micro.Platform
 
-import Debug.Trace
+--import Debug.Trace
 
 type Label = String
 newtype Individual = Individual Label deriving (Show, Eq)
@@ -64,7 +68,17 @@ data TableauxState = Tableaux
   , _roles    :: [UniRole] -- ^ It holds all visited universal role 
   , _indRoles :: [IndRole] -- ^ It holds all the filler individual
   , _uniq     :: [String] -- ^ A generator of uniq ids
-  } deriving (Show)
+  }
+
+instance Show TableauxState where
+  show Tableaux{..} = unlines 
+    [ "frontier: " <> show _frontier
+    , "Intrp:    " <> show _intrp
+    , "Inds:     " <> show _inds
+    , "Staus:    " <> show _status
+    , "Roles:    " <> show _roles
+    , "IndRoles: " <> show _indRoles
+    ]
 
 data Assertion
   = CAssertion Concept Individual
@@ -176,14 +190,19 @@ instance Pretty TableauxState where
    where
     join :: Pretty a => [a] -> String
     join = intercalate ", " . fmap pPrint
-    delta = "∆ = {" ++ join _inds ++ "}"
+    --delta = "∆ = {" ++ join _inds ++ "}"
+    delta = "D = {" ++ join _inds ++ "}"
     rls = printMapOfRoles . mapOfRoles $ _intrp
     cnt = printMapOfConcepts . mapOfConcepts $ _intrp
+
+cgiToConcept :: CGI -> Concept
+cgiToConcept (Subsumes c1 c2)   = Implies c1 c2
+cgiToConcept (Equivalent c1 c2) = IfOnlyIf c1 c2
 
 printMapOfConcepts :: M.Map Concept [Individual] -> String
 printMapOfConcepts = intercalate ", " . fmap showPair . M.toList
  where
-  showPair (c, inds) = pPrint c ++ " = {" ++ intercalate ", " (pPrint <$> inds) ++ "}"
+  showPair (c, is) = pPrint c ++ " = {" ++ intercalate ", " (pPrint <$> is) ++ "}"
 
 mapOfConcepts :: [Assertion] -> M.Map Concept [Individual]
 mapOfConcepts = M.fromListWith (++) . mapMaybe fltr
@@ -241,35 +260,43 @@ expandAssertion :: ([Writer String, State TableauxState] <:: r)
                 => Assertion
                 -> Eff r (Either ClashException (Maybe Branch))
 expandAssertion = \case
-  CAssertion (Disjunction a b) x -> do
+  CAssertion (Disjunction a b) x -> do -- break assertions and return them as branches
     debugAppLn "Disjunction found"
     pure . Right . Just $ (CAssertion a x, CAssertion b x)
-  CAssertion (Conjunction a b) x -> do 
+  CAssertion (Conjunction a b) x -> do -- break assertions and add them to frontier
     let newAssertions = [CAssertion a x, CAssertion b x]
     modify $ frontier %~ (newAssertions<>) -- break assertions and add them
     pure . Right $ Nothing
   CAssertion (AtLeast r c) x -> do 
     indExists <- fillerExists r c
-    guard $ not indExists
-    z <- newIndividual -- TODO: we should not always get a new individual; We should check if one already exists
-    modify $ inds %~ (z:) -- insert new individual
-    let newAssertions = [RAssertion r x z, CAssertion c z]
-    modify $ frontier %~ (newAssertions<>)
-    pure . Right $ Nothing
-  CAssertion (ForAll r c) x -> do
+    if indExists -- check if already a suitable individual exists
+    then 
+      pure . Right $ Nothing
+    else do
+      z <- newIndividual
+      modify $ inds %~ (z:) -- insert new individual
+      let newAssertions = [RAssertion r x z, CAssertion c z]
+      modify $ frontier %~ (newAssertions<>)
+      pure . Right $ Nothing
+  CAssertion (ForAll r c) _ -> do
     fils <- fillers r -- find all existing fillers of R(_, i)
     let assertions = fmap (CAssertion c) fils -- add assertions for them
     modify $ roles %~ ((r, c):) -- insert the new universal role
     modify $ frontier %~ (assertions<>) -- add all new assertions
     pure . Right $ Nothing
-  a@(RAssertion r o f) -> do
+  a@(RAssertion r _ f) -> do
     cpts <- forAllRoles r
     let assertions = fmap (flip CAssertion f) cpts -- add assertions for them
     modify $ indRoles %~ ((f, r):) -- insert the new universal role
     modify $ frontier %~ (assertions<>) -- add all new assertions
-    modify $ intrp %~ (a:) -- add role assertion
-    pure . Right $ Nothing
-  ci@(CAssertion c x) -> do
+    addToInterpretation a -- try adding role assertion
+  ra@RInvAssertion{} -> addToInterpretation ra
+  ci@CAssertion{}    -> addToInterpretation ci
+
+addToInterpretation :: ([Writer String, State TableauxState] <:: r) 
+                    => Assertion
+                    -> Eff r (Either ClashException (Maybe Branch))
+addToInterpretation ci = do
     st <- get
     case clashesWith ci (view intrp st)  of
       Just z -> do -- clash found; terminate this branch
@@ -280,7 +307,6 @@ expandAssertion = \case
       Nothing -> do -- No clash 
         debugAppLn $ "Adding " <> pPrint ci <> " to Interpretation"
         modify $ intrp %~ (ci:) -- add assertion to interpretarion
-        -- modify $ set frontier cs . over intrp (c:) -- remove concept from frontier
         pure . Right $ Nothing
 
 
@@ -381,12 +407,11 @@ solve = do
             Nothing -> do
               put . head . map fst $ newStates -- all branches clash. Just select one of them
               pure Nothing -- no valid interpretation
-
         Right Nothing -> do -- no further expansion
           stt <- get
           debugAppLn $ "Remaining assertions: " ++ (show . length . view frontier $ stt)
           solve -- continue
-        Left exc -> pure Nothing -- clash found; temrinate execution
+        Left _ -> pure Nothing -- clash found; temrinate execution
 
 
 -- | Creates a new individual
@@ -413,7 +438,6 @@ debugApp = tell -- log to writer
 --
 getInterpretation :: [TableauxState] -> Maybe TableauxState
 getInterpretation = safeHead      -- a single interpretation is enough 
-                  -- . map (view intrp) -- extract their interpretation
                   . filter ((== Completed) . view status) -- get only the completed tableaux
 
 atomicA, atomicB, atomicC, atomicD :: Concept
@@ -426,9 +450,13 @@ example1 = Not atomicA
 example2 = Conjunction atomicA atomicB
 example3 = Disjunction atomicA (Conjunction atomicD atomicB)
 example4 = Conjunction atomicA example1
-rl :: Role
-rl = Role "R"
-example5 = Conjunction (Conjunction (AtLeast rl atomicA) (AtLeast rl atomicB)) (Not (AtLeast rl (Conjunction atomicA atomicB)))
+rlR :: Role
+rlR = Role "R"
+example5 = Conjunction
+             (Conjunction
+               (AtLeast rlR atomicA)
+               (AtLeast rlR atomicB))
+             (Not (AtLeast rlR (Conjunction atomicA atomicB)))
 
 initialIndividual :: Individual
 initialIndividual = Individual "a"
@@ -441,12 +469,25 @@ initialState = Tableaux {
   , _status   = Active
   , _roles    = []
   , _indRoles = []
-  , _uniq     = (\i a -> a:show i) <$> [0..] <*> ['a'..'z'] 
+  , _uniq     = uniqueIdentifierPool
   }
+
+-- | Generates an almost infinite list of strings. It can be used to introduce new names
+-- e.g. for individual, rules or concepts. The format of the labels are 'a0, b0, c0,..., a1, b1, c1,...
+--
+uniqueIdentifierPool :: [String]
+uniqueIdentifierPool = (\i a -> a:show i)
+                    <$> [0::Int ..]
+                    <*> ['a'..'z'] 
+
+modelExists :: TableauxState -> String
+modelExists initState =
+  let ((_intr, st), _log :: String) = run . runMonoidWriter . runState initState  $ solve
+  in show st
 
 main :: IO () -- (Interpretation, String)
 main = do
-  let ((interp, logs), st) = run . runState initialState . runMonoidWriter $ solve 
+  let ((_interp, logs), st) = run . runState initialState . runMonoidWriter $ solve 
       theLines = [ ("Concept: " <> ) . pPrint . head . view frontier $ initialState
                  , "**Logging**"
                  , "-----------"
