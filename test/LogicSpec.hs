@@ -69,7 +69,7 @@ testState = initialState {
   }
  where
   --asrts = fmap (toDNF . cgiToConcept) [veganClass, vegetarianClass, veganIsVegeterian]
-  asrts = fmap (toDNF . cgiToConcept) [veganClass] --, vegetarianClass, vegeterianIsVegan]
+  asrts = fmap (toDNF . cgiToConcept) [veganClass, vegetarianClass]
 
 ----------------------
 -- Property testing --
@@ -88,9 +88,12 @@ props =
 
 unitTests :: Spec
 unitTests = 
-  describe "Model" $ do
-    it "should not exist" $
-      modelExists testState `shouldBe` show testState
+  describe "Assertion" $ do
+    it "Vegeterian is vegan should hold" $
+      isSatisfiable (CAssertion (cgiToConcept vegeterianIsVegan) initialIndividual) testState `shouldBe` True
+
+    it "Vegan is vegeterian should not hold" $
+      isSatisfiable (CAssertion (cgiToConcept veganIsVegeterian) initialIndividual) testState `shouldBe` False
 ------------------
 -- Unit testing --
 ------------------

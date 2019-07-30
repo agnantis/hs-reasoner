@@ -26,10 +26,10 @@ import           Data.Functor.Foldable          (cata, embed)
 import           Data.Functor.Foldable.TH       (makeBaseFunctor)
 import           Data.List                      (intercalate, intersect)
 import qualified Data.Map.Strict                                    as M
-import           Data.Maybe                     (isJust, mapMaybe)
+import           Data.Maybe                     (isJust, isNothing, mapMaybe)
 import           Lens.Micro.Platform
 
---import Debug.Trace
+import Debug.Trace
 
 type Label = String
 newtype Individual = Individual Label deriving (Show, Eq)
@@ -263,10 +263,12 @@ expandAssertion = \case
   CAssertion (Disjunction a b) x -> do -- break assertions and return them as branches
     debugAppLn "Disjunction found"
     pure . Right . Just $ (CAssertion a x, CAssertion b x)
+
   CAssertion (Conjunction a b) x -> do -- break assertions and add them to frontier
     let newAssertions = [CAssertion a x, CAssertion b x]
     modify $ frontier %~ (newAssertions<>) -- break assertions and add them
     pure . Right $ Nothing
+  
   CAssertion (AtLeast r c) x -> do 
     indExists <- fillerExists r c
     if indExists -- check if already a suitable individual exists
@@ -278,21 +280,27 @@ expandAssertion = \case
       let newAssertions = [RAssertion r x z, CAssertion c z]
       modify $ frontier %~ (newAssertions<>)
       pure . Right $ Nothing
+  
   CAssertion (ForAll r c) _ -> do
     fils <- fillers r -- find all existing fillers of R(_, i)
     let assertions = fmap (CAssertion c) fils -- add assertions for them
     modify $ roles %~ ((r, c):) -- insert the new universal role
     modify $ frontier %~ (assertions<>) -- add all new assertions
     pure . Right $ Nothing
+  
   a@(RAssertion r _ f) -> do
     cpts <- forAllRoles r
     let assertions = fmap (flip CAssertion f) cpts -- add assertions for them
     modify $ indRoles %~ ((f, r):) -- insert the new universal role
     modify $ frontier %~ (assertions<>) -- add all new assertions
     addToInterpretation a -- try adding role assertion
+  
   ra@RInvAssertion{} -> addToInterpretation ra
   ci@CAssertion{}    -> addToInterpretation ci
 
+-- | Tries to add an assertion to the current interpretation
+-- In case of a clash it updates the state and returns the ClassException
+-- otherwise, it adds the assertion to the interpretation and returns Nothing
 addToInterpretation :: ([Writer String, State TableauxState] <:: r) 
                     => Assertion
                     -> Eff r (Either ClashException (Maybe Branch))
@@ -480,15 +488,25 @@ uniqueIdentifierPool = (\i a -> a:show i)
                     <$> [0::Int ..]
                     <*> ['a'..'z'] 
 
-modelExists :: TableauxState -> String
-modelExists initState =
-  let ((_intr, st), _log :: String) = run . runMonoidWriter . runState initState  $ solve
-  in show st
+isSatisfiable :: Assertion -> TableauxState -> Bool
+isSatisfiable as initState =
+  let negatedAss = inverse as
+      newState   =  frontier %~ (negatedAss:) $ initState
+      (intr, _log :: String) = run . evalState newState . runMonoidWriter $ solve 
+  in isNothing intr
 
 main :: IO () -- (Interpretation, String)
 main = do
-  let ((_interp, logs), st) = run . runState initialState . runMonoidWriter $ solve 
-      theLines = [ ("Concept: " <> ) . pPrint . head . view frontier $ initialState
+  let theState = initialState
+      ((_interp, logs), st) = run . runState theState . runMonoidWriter $ solve 
+      theLines = [ "", "***************************", ""
+                 , "TBOX: "
+                 , unlines
+                   . fmap (\(i, v) -> "\t" <> show i <> ". " <> pPrint v)
+                   . zip [1::Int ..]
+                   . view frontier
+                   $ theState
+                 , ""
                  , "**Logging**"
                  , "-----------"
                  , ""
@@ -510,3 +528,44 @@ safeTail :: [a] -> Maybe [a]
 safeTail [] = Nothing
 safeTail (_:xs) = Just xs
 
+
+
+-- -------------------------
+-- -- Auxiliary functions --
+-- -------------------------
+-- 
+-- vegan, person, vegeterian, plant, diary :: Concept
+-- vegan      = Atomic "vegan"
+-- person     = Atomic "person"
+-- vegeterian = Atomic "vegeterian"
+-- plant      = Atomic "plant"
+-- diary      = Atomic "diary"
+-- 
+-- eats :: Role
+-- eats = Role "eats"
+-- 
+-- veganClass :: CGI
+-- veganClass = Equivalent vegan (Conjunction person (ForAll eats plant))
+-- 
+-- vegetarianClass :: CGI
+-- vegetarianClass = Equivalent vegeterian (Conjunction person (ForAll eats (Disjunction plant diary)))
+-- 
+-- vegeterianIsVegan :: CGI
+-- vegeterianIsVegan = Subsumes vegan vegeterian
+-- 
+-- veganIsVegeterian :: CGI
+-- veganIsVegeterian = Subsumes vegeterian vegan 
+-- 
+-- testState :: TableauxState
+-- testState = initialState {
+--     _frontier = [CAssertion x initialIndividual | x <- asrts] -- [CAssertion (toDNF asrts) initialIndividual]
+--   , _intrp    = []
+--   , _inds     = [initialIndividual]
+--   , _status   = Active
+--   , _roles    = []
+--   , _indRoles = []
+--   , _uniq     = uniqueIdentifierPool
+--   }
+--  where
+--   --asrts = fmap (toDNF . cgiToConcept) [veganClass, vegetarianClass, veganIsVegeterian]
+--   asrts = fmap (toDNF . cgiToConcept) [veganClass, vegetarianClass] -- <> [toDNF . Not $ Implies vegan vegeterian]
