@@ -25,7 +25,8 @@ instance Arbitrary Concept where
       atl  = AtLeast r1 c1
       fora = ForAll r1 c1
       atm  = Atomic lbl
-    oneof . fmap pure $ [atm, nt] --[conj] --, dis, nt, impl, ifif, atl, fora, atm]
+    oneof . fmap pure $ [atm, nt]  -- conj, dis, nt, impl, ifif, atl, fora, atm]
+                                  -- NOTE: not included otherwise property test never ends 
      
 instance Arbitrary Role where
   arbitrary = Role <$> arbitrary
@@ -46,20 +47,20 @@ eats :: Role
 eats = Role "eats"
 
 veganClass :: CGI
-veganClass = Equivalent vegan (Conjunction person (ForAll eats plant))
+veganClass = vegan `isEquivalentTo` Conjunction person (ForAll eats plant)
 
-vegetarianClass :: CGI
-vegetarianClass = Equivalent vegeterian (Conjunction person (ForAll eats (Disjunction plant diary)))
+vegeterianClass :: CGI
+vegeterianClass = vegeterian `isEquivalentTo` Conjunction person (ForAll eats (Disjunction plant diary))
 
 vegeterianIsVegan :: CGI
-vegeterianIsVegan = Subsumes vegan vegeterian
+vegeterianIsVegan = vegeterian `isSubsumedBy` vegan
 
 veganIsVegeterian :: CGI
-veganIsVegeterian = Subsumes vegeterian vegan 
+veganIsVegeterian = vegan `isSubsumedBy` vegeterian 
 
 testState :: TableauxState
 testState = initialState {
-    _frontier = [CAssertion x initialIndividual | x <- asrts] -- [CAssertion (toDNF asrts) initialIndividual]
+    _frontier = [CAssertion x initialIndividual | x <- asrts]
   , _intrp    = []
   , _inds     = [initialIndividual]
   , _status   = Active
@@ -68,17 +69,20 @@ testState = initialState {
   , _uniq     = uniqueIdentifierPool
   }
  where
-  --asrts = fmap (toDNF . cgiToConcept) [veganClass, vegetarianClass, veganIsVegeterian]
-  asrts = fmap (toDNF . cgiToConcept) [veganClass, vegetarianClass]
+  asrts = fmap (toDNF . cgiToConcept) [veganClass, vegeterianClass]
 
-----------------------
--- Property testing --
-----------------------
+-------------------
+-- Testing specs --
+-------------------
 
 spec :: Spec
 spec = do
   props
   unitTests
+
+----------------------
+-- Property testing --
+----------------------
 
 props :: Spec
 props = 
@@ -86,15 +90,16 @@ props =
     it "when inversed is like id" $
       property $ \x -> (inverse . inverse) (toDNF x) == toDNF (x :: Concept)
 
-unitTests :: Spec
-unitTests = 
-  describe "Assertion" $ do
-    it "Vegeterian is vegan should hold" $
-      isSatisfiable (CAssertion (cgiToConcept vegeterianIsVegan) initialIndividual) testState `shouldBe` True
-
-    it "Vegan is vegeterian should not hold" $
-      isSatisfiable (CAssertion (cgiToConcept veganIsVegeterian) initialIndividual) testState `shouldBe` False
 ------------------
 -- Unit testing --
 ------------------
+
+unitTests :: Spec
+unitTests = 
+  describe "Assertion" $ do
+    it "Vegan is always vegeterian should hold" $
+      isProvable veganIsVegeterian testState `shouldBe` True
+
+    it "Vegeterian is always vegan should not hold" $
+      isProvable vegeterianIsVegan testState `shouldNotBe` True
 

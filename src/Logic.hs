@@ -14,6 +14,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module Logic where
 
 --import Prelude                        hiding (head, tail)
@@ -24,7 +25,7 @@ import           Control.Eff.Writer.Lazy
 import           Control.Monad                  (mapM_)
 import           Data.Functor.Foldable          (cata, embed)
 import           Data.Functor.Foldable.TH       (makeBaseFunctor)
-import           Data.List                      (intercalate, intersect)
+import           Data.List                      (intercalate, intersect, nub)
 import qualified Data.Map.Strict                                    as M
 import           Data.Maybe                     (isJust, isNothing, mapMaybe)
 import           Lens.Micro.Platform
@@ -57,7 +58,7 @@ data CGI
 type UniRole = (Role, Concept) -- ^ Represents a ∀R.C (i.e. (R,C)
 type IndRole = (Individual, Role) -- ^ Represents a filler of a role
 
-  
+
 data ClashException = ClashException Assertion Assertion deriving (Eq, Show)
 
 data TableauxState = Tableaux
@@ -65,13 +66,13 @@ data TableauxState = Tableaux
   , _intrp    :: [Assertion] -- ^ The current interpretation
   , _inds     :: [Individual] -- ^ individuals in scope
   , _status   :: TableauxStatus -- ^ The state of the specific path
-  , _roles    :: [UniRole] -- ^ It holds all visited universal role 
+  , _roles    :: [UniRole] -- ^ It holds all visited universal role
   , _indRoles :: [IndRole] -- ^ It holds all the filler individual
   , _uniq     :: [String] -- ^ A generator of uniq ids
   }
 
 instance Show TableauxState where
-  show Tableaux{..} = unlines 
+  show Tableaux{..} = unlines
     [ "frontier: " <> show _frontier
     , "Intrp:    " <> show _intrp
     , "Inds:     " <> show _inds
@@ -196,8 +197,8 @@ instance Pretty TableauxState where
     cnt = printMapOfConcepts . mapOfConcepts $ _intrp
 
 cgiToConcept :: CGI -> Concept
-cgiToConcept (Subsumes c1 c2)   = Implies c1 c2
-cgiToConcept (Equivalent c1 c2) = IfOnlyIf c1 c2
+cgiToConcept (c1 `Subsumes` c2)   = c2 `Implies` c1
+cgiToConcept (c1 `Equivalent` c2) = c1 `IfOnlyIf` c2
 
 printMapOfConcepts :: M.Map Concept [Individual] -> String
 printMapOfConcepts = intercalate ", " . fmap showPair . M.toList
@@ -233,7 +234,7 @@ isConceptAssertion CAssertion{} = True
 isConceptAssertion _ = False
 
 initialize :: TBox -> ABox
-initialize = 
+initialize =
  let ind = Individual "0"
  in fmap (`CAssertion` ind)
 -- | Converts a concept to DNF
@@ -256,7 +257,7 @@ toDNF = cata algebra
 
 -- | Tablaux expansion rules
 --
-expandAssertion :: ([Writer String, State TableauxState] <:: r) 
+expandAssertion :: ([Writer String, State TableauxState] <:: r)
                 => Assertion
                 -> Eff r (Either ClashException (Maybe Branch))
 expandAssertion = \case
@@ -268,11 +269,11 @@ expandAssertion = \case
     let newAssertions = [CAssertion a x, CAssertion b x]
     modify $ frontier %~ (newAssertions<>) -- break assertions and add them
     pure . Right $ Nothing
-  
-  CAssertion (AtLeast r c) x -> do 
+
+  CAssertion (AtLeast r c) x -> do
     indExists <- fillerExists r c
     if indExists -- check if already a suitable individual exists
-    then 
+    then
       pure . Right $ Nothing
     else do
       z <- newIndividual
@@ -280,28 +281,28 @@ expandAssertion = \case
       let newAssertions = [RAssertion r x z, CAssertion c z]
       modify $ frontier %~ (newAssertions<>)
       pure . Right $ Nothing
-  
+
   CAssertion (ForAll r c) _ -> do
     fils <- fillers r -- find all existing fillers of R(_, i)
     let assertions = fmap (CAssertion c) fils -- add assertions for them
     modify $ roles %~ ((r, c):) -- insert the new universal role
     modify $ frontier %~ (assertions<>) -- add all new assertions
     pure . Right $ Nothing
-  
+
   a@(RAssertion r _ f) -> do
     cpts <- forAllRoles r
     let assertions = fmap (flip CAssertion f) cpts -- add assertions for them
     modify $ indRoles %~ ((f, r):) -- insert the new universal role
     modify $ frontier %~ (assertions<>) -- add all new assertions
     addToInterpretation a -- try adding role assertion
-  
+
   ra@RInvAssertion{} -> addToInterpretation ra
   ci@CAssertion{}    -> addToInterpretation ci
 
 -- | Tries to add an assertion to the current interpretation
 -- In case of a clash it updates the state and returns the ClassException
 -- otherwise, it adds the assertion to the interpretation and returns Nothing
-addToInterpretation :: ([Writer String, State TableauxState] <:: r) 
+addToInterpretation :: ([Writer String, State TableauxState] <:: r)
                     => Assertion
                     -> Eff r (Either ClashException (Maybe Branch))
 addToInterpretation ci = do
@@ -312,7 +313,7 @@ addToInterpretation ci = do
         modify $ set status (ClashFound exc)
         debugAppLn . pPrint $ exc
         pure . Left $ exc
-      Nothing -> do -- No clash 
+      Nothing -> do -- No clash
         debugAppLn $ "Adding " <> pPrint ci <> " to Interpretation"
         modify $ intrp %~ (ci:) -- add assertion to interpretarion
         pure . Right $ Nothing
@@ -326,7 +327,7 @@ instance DLogic Assertion where
   inverse (CAssertion c i) = CAssertion (inverse c) i
   inverse (RAssertion r a b) = RInvAssertion r a b
   inverse (RInvAssertion r a b) = RAssertion r a b
-  
+
 -- | Checks if a concept (first argument) clashes with any of the concepts of the list
 --
 clashesWith :: Assertion -> [Assertion] -> Maybe Assertion
@@ -335,7 +336,7 @@ clashesWith c = safeHead . filter (isComplement c)
 -- | Checks if a concept (first argument) clashes with any of the concepts of the list
 --
 clashExists :: Assertion -> [Assertion] -> Bool
-clashExists c = isJust . clashesWith c 
+clashExists c = isJust . clashesWith c
 
 -- | Returns the next uniq number of the state
 --
@@ -368,7 +369,7 @@ conceptIndividuals c = do
    filterCAssertions :: Concept -> Assertion -> Maybe Individual
    filterCAssertions cn (CAssertion concept ind) = if cn == concept then Just ind else Nothing
    filterCAssertions _ _                         = Nothing
-  
+
 
 fillerExists :: Member (State TableauxState) r => Role -> Concept -> Eff r Bool
 fillerExists rl c = do
@@ -433,10 +434,10 @@ newIndividual = Individual <$> nextUniq
 -- to be collected. For performance reasons the actual logging should be trigger only
 -- for debugging purposes
 --
-debugAppLn :: Member (Writer String) r => String -> Eff r () 
-debugAppLn = debugApp . flip (++) "\n" 
+debugAppLn :: Member (Writer String) r => String -> Eff r ()
+debugAppLn = debugApp . flip (++) "\n"
 
-debugApp :: Member (Writer String) r => String -> Eff r () 
+debugApp :: Member (Writer String) r => String -> Eff r ()
 --debugApp = const . pure $ () -- do nothing
 debugApp = tell -- log to writer
 --debugApp msg = trace msg (tell msg) -- print to console and log to writer
@@ -445,7 +446,7 @@ debugApp = tell -- log to writer
 -- clash-free completed interpretation
 --
 getInterpretation :: [TableauxState] -> Maybe TableauxState
-getInterpretation = safeHead      -- a single interpretation is enough 
+getInterpretation = safeHead      -- a single interpretation is enough
                   . filter ((== Completed) . view status) -- get only the completed tableaux
 
 atomicA, atomicB, atomicC, atomicD :: Concept
@@ -486,19 +487,26 @@ initialState = Tableaux {
 uniqueIdentifierPool :: [String]
 uniqueIdentifierPool = (\i a -> a:show i)
                     <$> [0::Int ..]
-                    <*> ['a'..'z'] 
+                    <*> ['a'..'z']
 
-isSatisfiable :: Assertion -> TableauxState -> Bool
-isSatisfiable as initState =
-  let negatedAss = inverse as
-      newState   =  frontier %~ (negatedAss:) $ initState
-      (intr, _log :: String) = run . evalState newState . runMonoidWriter $ solve 
+-- | Given an active tableaux state (either completed or not) the function checks
+-- if the provided CGI can be proved.
+-- It return true if it can be proved, otherwise returs false
+--
+isProvable :: CGI -> TableauxState -> Bool
+isProvable cgi initState =
+  let
+      negatedAss = inverse $ cgiToConcept cgi
+      existingInds = initState ^. inds
+      ass = CAssertion negatedAss <$> existingInds -- build assertions from cgi for all existing inds
+      newState   =  frontier %~ (ass <>) $ initState
+      (intr, _log :: String) = run . evalState newState . runMonoidWriter $ solve
   in isNothing intr
 
 main :: IO () -- (Interpretation, String)
 main = do
   let theState = initialState
-      ((_interp, logs), st) = run . runState theState . runMonoidWriter $ solve 
+      ((_interp, logs), st) = run . runState theState . runMonoidWriter $ solve
       theLines = [ "", "***************************", ""
                  , "TBOX: "
                  , unlines
@@ -528,44 +536,47 @@ safeTail :: [a] -> Maybe [a]
 safeTail [] = Nothing
 safeTail (_:xs) = Just xs
 
+-- | Smart constructor of Subsumes CGI
+--
+subsumes :: Concept -> Concept -> CGI
+subsumes a b = a `Subsumes` b
+
+-- | Smart constructor of Subsumes CGI
+--
+isSubsumedBy :: Concept -> Concept -> CGI
+isSubsumedBy a b = b `subsumes` a
+
+-- | Smart constructor of Equivalent CGI
+--
+isEquivalentTo :: Concept -> Concept -> CGI
+isEquivalentTo a b = a `Equivalent` b
+
+-- | Given an assertion, extracts the involved individuals
+--
+extractIndividuals :: Assertion -> [Individual]
+extractIndividuals = \case
+  CAssertion _ a -> [a]
+  RAssertion _ a b -> [a,b]
+  RInvAssertion _ a b -> [a,b]
+
+initialTableaux :: [CGI] -> [Assertion] -> TableauxState
+initialTableaux cgis ass =
+  let
+    providedInds = nub $ concatMap extractIndividuals ass
+    allInds = if null providedInds then [initialIndividual] else providedInds
+    newAss = do
+       cgi <- cgis
+       let cnpt = toDNF $ cgiToConcept cgi
+       CAssertion cnpt <$> allInds
+    allAss = newAss <> ass
+  in Tableaux {
+    _frontier = allAss
+  , _intrp    = []
+  , _inds     = allInds
+  , _status   = Active
+  , _roles    = []
+  , _indRoles = []
+  , _uniq     = uniqueIdentifierPool
+  }
 
 
--- -------------------------
--- -- Auxiliary functions --
--- -------------------------
--- 
--- vegan, person, vegeterian, plant, diary :: Concept
--- vegan      = Atomic "vegan"
--- person     = Atomic "person"
--- vegeterian = Atomic "vegeterian"
--- plant      = Atomic "plant"
--- diary      = Atomic "diary"
--- 
--- eats :: Role
--- eats = Role "eats"
--- 
--- veganClass :: CGI
--- veganClass = Equivalent vegan (Conjunction person (ForAll eats plant))
--- 
--- vegetarianClass :: CGI
--- vegetarianClass = Equivalent vegeterian (Conjunction person (ForAll eats (Disjunction plant diary)))
--- 
--- vegeterianIsVegan :: CGI
--- vegeterianIsVegan = Subsumes vegan vegeterian
--- 
--- veganIsVegeterian :: CGI
--- veganIsVegeterian = Subsumes vegeterian vegan 
--- 
--- testState :: TableauxState
--- testState = initialState {
---     _frontier = [CAssertion x initialIndividual | x <- asrts] -- [CAssertion (toDNF asrts) initialIndividual]
---   , _intrp    = []
---   , _inds     = [initialIndividual]
---   , _status   = Active
---   , _roles    = []
---   , _indRoles = []
---   , _uniq     = uniqueIdentifierPool
---   }
---  where
---   --asrts = fmap (toDNF . cgiToConcept) [veganClass, vegetarianClass, veganIsVegeterian]
---   asrts = fmap (toDNF . cgiToConcept) [veganClass, vegetarianClass] -- <> [toDNF . Not $ Implies vegan vegeterian]
