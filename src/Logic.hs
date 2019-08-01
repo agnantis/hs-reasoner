@@ -86,8 +86,9 @@ data Assertion
   | RAssertion Role Individual Individual
   | RInvAssertion Role Individual Individual deriving (Show, Eq)
 
-type TBox = [Concept]
+type TBox = [CGI]
 type ABox = [Assertion]
+type KB = (TBox, ABox)
 
 data TableauxStatus
   = ClashFound ClashException
@@ -96,8 +97,7 @@ data TableauxStatus
 
 type Branch = (Assertion, Assertion)
 
-type KB = [Assertion]
-type Interpretation = Maybe KB
+type Interpretation = Maybe ABox
 -- Some template magic
 makeLenses ''TableauxState
 
@@ -233,10 +233,6 @@ isConceptAssertion :: Assertion -> Bool
 isConceptAssertion CAssertion{} = True
 isConceptAssertion _ = False
 
-initialize :: TBox -> ABox
-initialize =
- let ind = Individual "0"
- in fmap (`CAssertion` ind)
 -- | Converts a concept to DNF
 --
 toDNF :: Concept -> Concept
@@ -493,9 +489,10 @@ uniqueIdentifierPool = (\i a -> a:show i)
 -- if the provided CGI can be proved.
 -- It return true if it can be proved, otherwise returs false
 --
-isProvable :: CGI -> TableauxState -> Bool
-isProvable cgi initState =
+isProvable :: CGI -> TBox -> ABox -> Bool
+isProvable cgi tbox abox =
   let
+      initState = initialTableaux tbox abox
       negatedAss = inverse $ cgiToConcept cgi
       existingInds = initState ^. inds
       ass = CAssertion negatedAss <$> existingInds -- build assertions from cgi for all existing inds
@@ -559,12 +556,14 @@ extractIndividuals = \case
   RAssertion _ a b -> [a,b]
   RInvAssertion _ a b -> [a,b]
 
-initialTableaux :: [CGI] -> [Assertion] -> TableauxState
+-- | Given a TBox and an ABox, it generates an initial table state
+--
+initialTableaux :: TBox -> ABox -> TableauxState
 initialTableaux cgis ass =
   let
-    providedInds = nub $ concatMap extractIndividuals ass
-    allInds = if null providedInds then [initialIndividual] else providedInds
-    newAss = do
+    providedInds = nub $ concatMap extractIndividuals ass -- extract esixting individuals
+    allInds = providedInds `orElse` [initialIndividual] -- if none exists, use the default one
+    newAss = do -- convert cgis to assertions
        cgi <- cgis
        let cnpt = toDNF $ cgiToConcept cgi
        CAssertion cnpt <$> allInds
@@ -579,4 +578,17 @@ initialTableaux cgis ass =
   , _uniq     = uniqueIdentifierPool
   }
 
+-- | An _alternative_ (<|>) for list when they not used for non-determinism encoding
+-- Then function tries to select the non-empty list in case it exists
+--
+-- >>> [] `orElse` [1,2,3]
+-- [1,2,3]
+-- >>> [1,2] `orElse` []
+-- [1,2]
+-- >>> [1,2] `orElse` [4,5,6]
+-- [1,2]
+--
+orElse :: [a] -> [a] -> [a]
+orElse [] xs = xs
+orElse xs _  = xs
 

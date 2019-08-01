@@ -98,8 +98,8 @@ unitTests :: Spec
 unitTests = 
   describe "Assertion" $ do
     it "Vegan is always vegeterian should hold" $
-      isProvable veganIsVegeterian testState `shouldBe` True
+      isProvable veganIsVegeterian [veganClass, vegeterianClass] [] `shouldBe` True
 
     it "Vegeterian is always vegan should not hold" $
-      isProvable vegeterianIsVegan testState `shouldNotBe` True
+      isProvable vegeterianIsVegan [veganClass, vegeterianClass] [] `shouldNotBe` True
 
