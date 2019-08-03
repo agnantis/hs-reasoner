@@ -45,12 +45,15 @@ data Concept
   | IfOnlyIf Concept Concept    -- ^ A <-> B
   | AtLeast Role Concept        -- ^ R.C
   | ForAll Role Concept         -- ^ R.C
+  | Bottom                      -- _|_
+  | Top                         -- T
   | Atomic Label deriving (Show, Eq, Ord)
 
 makeBaseFunctor ''Concept
 
 data CGI
-  = Subsumes Concept Concept
+  = SimpleCGI Concept -- ~ Not Concept `Subsumes` Bottom
+  | Subsumes Concept Concept
   | Equivalent Concept Concept deriving (Show, Eq)
 
 --type TBox = [CGI]
@@ -166,11 +169,14 @@ instance Pretty Concept where
     algebra (IfOnlyIfF a b)    = "(" ++ a ++ " ↔ " ++ b ++ ")"
     algebra (AtLeastF r c)     = "(" ++ "∃" ++ pPrint r ++ "." ++ c ++ ")"
     algebra (ForAllF r c)      = "(" ++ "∀" ++ pPrint r ++ "." ++ c ++ ")"
+    algebra BottomF            = "⊥"
+    algebra TopF               = "⏉"
     algebra (AtomicF a)        = a
 
 instance Pretty CGI where
   pPrint (Subsumes a b) = pPrint a ++ " ⊑ " ++ pPrint b
   pPrint (Equivalent a b) = pPrint a ++ " ≡ " ++ pPrint b
+  pPrint (SimpleCGI c) = pPrint c
 
 instance Pretty Individual where
   pPrint (Individual i) = i
@@ -199,6 +205,7 @@ instance Pretty TableauxState where
 cgiToConcept :: CGI -> Concept
 cgiToConcept (c1 `Subsumes` c2)   = c2 `Implies` c1
 cgiToConcept (c1 `Equivalent` c2) = c1 `IfOnlyIf` c2
+cgiToConcept (SimpleCGI c) = c 
 
 printMapOfConcepts :: M.Map Concept [Individual] -> String
 printMapOfConcepts = intercalate ", " . fmap showPair . M.toList
@@ -244,6 +251,8 @@ toDNF = cata algebra
   algebra (NotF (Disjunction a b)) = Conjunction (inverse a) (inverse b)
   algebra (NotF (AtLeast r c))     = ForAll r (inverse c)
   algebra (NotF (ForAll r c))      = AtLeast r (inverse c)
+  algebra (NotF Bottom)            = Top
+  algebra (NotF Top)               = Bottom
   -- TODO: This optimization is never triggered, as the IfOnlyIf has been already simplified
   -- I may have to use something like {ana|para}mporphism, to solve this
   -- algebra (NotF (IfOnlyIf a b))    = Disjunction (Conjunction a (inverse b)) (Conjunction (inverse a) b)
@@ -298,6 +307,7 @@ expandAssertion = \case
 -- | Tries to add an assertion to the current interpretation
 -- In case of a clash it updates the state and returns the ClassException
 -- otherwise, it adds the assertion to the interpretation and returns Nothing
+--
 addToInterpretation :: ([Writer String, State TableauxState] <:: r)
                     => Assertion
                     -> Eff r (Either ClashException (Maybe Branch))
@@ -326,8 +336,17 @@ instance DLogic Assertion where
 
 -- | Checks if a concept (first argument) clashes with any of the concepts of the list
 --
+-- >>> bottom = CAssertion Bottom initialIndividual
+-- >>> top = CAssertion Top initialIndividual
+-- >>> clashesWith bottom [top]
+-- Just (CAssertion Top (Individual "a"))
+--
+-- >>> clashesWith top [bottom]
+-- Just (CAssertion Bottom (Individual "a"))
+--
 clashesWith :: Assertion -> [Assertion] -> Maybe Assertion
-clashesWith c = safeHead . filter (isComplement c)
+clashesWith (CAssertion Bottom i) _ = Just $ CAssertion Top i
+clashesWith c xs = safeHead . filter (isComplement c) $ xs
 
 -- | Checks if a concept (first argument) clashes with any of the concepts of the list
 --
@@ -398,6 +417,13 @@ solve = do
       modify $ set frontier cs -- remove assertion from frontier
       res <- expandAssertion c
       case res of
+        Left _ -> pure Nothing -- clash found; temrinate execution
+
+        Right Nothing -> do -- no further expansion
+          stt <- get
+          debugAppLn $ "Remaining assertions: " ++ (show . length . view frontier $ stt)
+          solve -- continue
+        
         Right(Just(a, b)) -> do -- or block
           let newStates :: [(TableauxState, String)]
               newStates = do -- create branched states and run them
@@ -409,14 +435,10 @@ solve = do
             (Just state) -> do
               put state -- set the state as the final one
               pure . Just . view intrp $ state -- return its interpretation
+            
             Nothing -> do
               put . head . map fst $ newStates -- all branches clash. Just select one of them
               pure Nothing -- no valid interpretation
-        Right Nothing -> do -- no further expansion
-          stt <- get
-          debugAppLn $ "Remaining assertions: " ++ (show . length . view frontier $ stt)
-          solve -- continue
-        Left _ -> pure Nothing -- clash found; temrinate execution
 
 
 -- | Creates a new individual
@@ -489,16 +511,37 @@ uniqueIdentifierPool = (\i a -> a:show i)
 -- if the provided CGI can be proved.
 -- It return true if it can be proved, otherwise returs false
 --
-isProvable :: CGI -> TBox -> ABox -> Bool
-isProvable cgi tbox abox =
+isProvableS :: CGI -> TBox -> ABox -> TableauxState
+isProvableS cgi tbox abox =
   let
       initState = initialTableaux tbox abox
       negatedAss = inverse $ cgiToConcept cgi
       existingInds = initState ^. inds
       ass = CAssertion negatedAss <$> existingInds -- build assertions from cgi for all existing inds
       newState   =  frontier %~ (ass <>) $ initState
-      (intr, _log :: String) = run . evalState newState . runMonoidWriter $ solve
-  in isNothing intr
+      ((intr, _log::String), state) = run . runState newState . runMonoidWriter $ solve
+  in state
+
+isProvable :: CGI -> TBox -> ABox -> Bool
+isProvable cgi tbox abox =
+  let
+      state = isProvableS cgi tbox abox
+  in  Completed /= state ^. status
+
+isValidModelS :: TBox -> ABox -> TableauxState
+isValidModelS tbox abox =
+  let
+      initState = initialTableaux tbox abox
+      ((intr, _log::String), state) = run . runState initState . runMonoidWriter $ solve
+  in state
+
+isValidModel :: TBox -> ABox -> Bool
+isValidModel tbox abox =
+  let
+      state = isValidModelS tbox abox
+  in  Completed == state ^. status
+
+
 
 main :: IO () -- (Interpretation, String)
 main = do
@@ -547,6 +590,11 @@ isSubsumedBy a b = b `subsumes` a
 --
 isEquivalentTo :: Concept -> Concept -> CGI
 isEquivalentTo a b = a `Equivalent` b
+
+-- | Smart constructor of the Simple CGI
+simpleCGI :: Concept -> CGI
+simpleCGI = SimpleCGI
+-- simpleCGI c = Not c `isSubsumedBy` Bottom
 
 -- | Given an assertion, extracts the involved individuals
 --

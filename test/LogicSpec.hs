@@ -36,6 +36,8 @@ instance Arbitrary Role where
 -- Auxiliary functions --
 -------------------------
 
+
+-- Example A --
 vegan, person, vegeterian, plant, diary :: Concept
 vegan      = Atomic "vegan"
 person     = Atomic "person"
@@ -58,19 +60,28 @@ vegeterianIsVegan = vegeterian `isSubsumedBy` vegan
 veganIsVegeterian :: CGI
 veganIsVegeterian = vegan `isSubsumedBy` vegeterian 
 
-testState :: TableauxState
-testState = initialState {
-    _frontier = [CAssertion x initialIndividual | x <- asrts]
-  , _intrp    = []
-  , _inds     = [initialIndividual]
-  , _status   = Active
-  , _roles    = []
-  , _indRoles = []
-  , _uniq     = uniqueIdentifierPool
-  }
- where
-  asrts = fmap (toDNF . cgiToConcept) [veganClass, vegeterianClass]
+-- Example B --
+human :: Concept
+human = Atomic "human"
 
+parent :: Role
+parent = Role "parent"
+
+humanHasHumanParent :: CGI
+humanHasHumanParent = human `isSubsumedBy` AtLeast parent human
+
+humanCGI :: CGI
+humanCGI = SimpleCGI human -- `isSubsumedBy` Top
+
+-- Example C --
+classA, classB :: Concept
+classA = Atomic "A"
+classB = Atomic "B"
+
+cgiA, cgiB, cgiC :: CGI
+cgiA = simpleCGI $ classA `Implies` classB
+cgiB = simpleCGI classA
+cgiC = simpleCGI $ Not classB
 -------------------
 -- Testing specs --
 -------------------
@@ -96,10 +107,16 @@ props =
 
 unitTests :: Spec
 unitTests = 
-  describe "Assertion" $ do
-    it "Vegan is always vegeterian should hold" $
+  describe "The assertion" $ do
+    it "that a vegan is always a vegeterian should hold" $
       isProvable veganIsVegeterian [veganClass, vegeterianClass] [] `shouldBe` True
 
-    it "Vegeterian is always vegan should not hold" $
+    it "that a vegeterian is always vegan should not hold" $
       isProvable vegeterianIsVegan [veganClass, vegeterianClass] [] `shouldNotBe` True
+
+--    it "that a human has at least one human parent should hold" $
+--      pPrint (isValidModelS [humanCGI, humanHasHumanParent] []) `shouldBe` ""
+
+    it "that invalidates 'implies' should not hold" $
+      isValidModel [cgiA, cgiB, cgiC] [] `shouldNotBe` True
 
