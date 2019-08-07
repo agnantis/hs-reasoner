@@ -22,7 +22,7 @@ instance Arbitrary Concept where
       nt   = Not c1
       impl = Implies c1 c2
       ifif = IfOnlyIf c1 c2
-      atl  = AtLeast r1 c1
+      atl  = Exists r1 c1
       fora = ForAll r1 c1
       atm  = Atomic lbl
     oneof . fmap pure $ [atm, nt]  -- conj, dis, nt, impl, ifif, atl, fora, atm]
@@ -68,11 +68,13 @@ parent :: Role
 parent = Role "parent"
 
 humanHasHumanParent :: CGI
-humanHasHumanParent = human `isSubsumedBy` AtLeast parent human
+humanHasHumanParent = human `isSubsumedBy` Exists parent human
 
 humanCGI :: CGI
 humanCGI = SimpleCGI human -- `isSubsumedBy` Top
 
+simpleExistsCGI :: CGI
+simpleExistsCGI = SimpleCGI $ Exists parent human
 -- Example C --
 classA, classB :: Concept
 classA = Atomic "A"
@@ -108,6 +110,9 @@ props =
 unitTests :: Spec
 unitTests = 
   describe "The assertion" $ do
+    it "with Exists should terminate" $ 
+      pPrint (isValidModelS [simpleExistsCGI] []) `shouldBe` ""
+      
     it "that a vegan is always a vegeterian should hold" $
       isProvable veganIsVegeterian [veganClass, vegeterianClass] [] `shouldBe` True
 
@@ -119,4 +124,4 @@ unitTests =
 
     it "that invalidates 'implies' should not hold" $
       isValidModel [cgiA, cgiB, cgiC] [] `shouldNotBe` True
-
+  
