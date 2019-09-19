@@ -111,7 +111,7 @@ unitTests :: Spec
 unitTests = 
   describe "The assertion" $ do
     it "with Exists should terminate" $ 
-      pPrint (isValidModelS [simpleExistsCGI] []) `shouldBe` ""
+      isValidModel [simpleExistsCGI] [] `shouldBe` True
       
     it "that a vegan is always a vegeterian should hold" $
       isProvable veganIsVegeterian [veganClass, vegeterianClass] [] `shouldBe` True

@@ -57,14 +57,11 @@ data CGI
   | Subsumes Concept Concept
   | Equivalent Concept Concept deriving (Show, Eq)
 
---type TBox = [CGI]
-
 type UniRole = (Role, Concept) -- ^ Represents a ∀R.C (i.e. (R,C)
 type IndRole = (Individual, Role) -- ^ Represents a filler of a role
 type BlockedInds = (Individual, Individual) -- ^ (a,b) where a is the blocked and b is the blocking individuals
 type ExistIndividual = (Individual, Concept) -- ^ (a,b) where a is a filler individual that has been introduced by
                                              -- the concept expansion b (only `Exists` in ALC)
-
 
 data ClashException = ClashException Assertion Assertion deriving (Eq, Show)
 
@@ -444,7 +441,6 @@ fillers rl mi = do
     fltr r Nothing  (RAssertion r' _ y) = if r == r' then Just y else Nothing
     fltr r (Just i) (RAssertion r' z y) = if r == r' && i == z then Just y else Nothing
     fltr _ _ _                          = Nothing
-  -- TODO: temp code to make sure that the two functionalities yield the same results
   pure ids
 
 -- | Returns all the known individuals that are parents in a specific role
@@ -474,7 +470,8 @@ fromSameRule cpt = do
           $ st
   pure ids
 
-
+-- | Returns all individuals that beong to the provided concept
+--
 conceptIndividuals :: Member (State TableauxState) r => Concept -> Eff r [Individual]
 conceptIndividuals c = do
   st <- get
@@ -612,7 +609,7 @@ initialState     = Tableaux {
 --
 -- >>> take 4 uniqueIdentifierPool
 -- ["b","c","d","e"]
--- drop 24 . take 28 $ uniqueIdentifierPool
+-- >>> drop 24 . take 28 $ uniqueIdentifierPool
 -- ["z","a1","b1","c1"]
 --
 uniqueIdentifierPool :: [String]
