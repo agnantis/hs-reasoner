@@ -1,4 +1,4 @@
-# hs-easoner
+# hs-reasoner
 
 ## Brief Description
 
