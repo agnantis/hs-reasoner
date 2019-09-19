@@ -1,10 +1,11 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module TypesSpec (spec) where
+module TableauxSpec (spec) where
 
 import Test.Hspec
 import Test.QuickCheck
 
 import HsReasoner.Types
+import HsReasoner.Tableaux
 
 -------------------------
 -- Arbitrary instances --

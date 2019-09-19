@@ -22,6 +22,7 @@ library
   hs-source-dirs:     src
   ghc-options:        -Wall -Wno-simplifiable-class-constraints
   exposed-modules:    HsReasoner.Types
+                    , HsReasoner.Tableaux
   default-language:   Haskell2010
 
 executable hs-reasoner-exe
@@ -40,7 +41,7 @@ test-suite spec
                     , hspec == 2.*
                     , hs-reasoner
                     , QuickCheck
-  other-modules:      TypesSpec
+  other-modules:      TableauxSpec
   default-language:   Haskell2010
   build-tool-depends: hspec-discover:hspec-discover == 2.*
 
