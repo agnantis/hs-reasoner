@@ -21,7 +21,7 @@ library
                     , template-haskell
   hs-source-dirs:     src
   ghc-options:        -Wall -Wno-simplifiable-class-constraints
-  exposed-modules:    Logic
+  exposed-modules:    HsReasoner.Types
   default-language:   Haskell2010
 
 executable hs-reasoner-exe
@@ -40,7 +40,7 @@ test-suite spec
                     , hspec == 2.*
                     , hs-reasoner
                     , QuickCheck
-  other-modules:      LogicSpec
+  other-modules:      TypesSpec
   default-language:   Haskell2010
   build-tool-depends: hspec-discover:hspec-discover == 2.*
 

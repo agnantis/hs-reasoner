@@ -1,10 +1,10 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module LogicSpec (spec) where
+module TypesSpec (spec) where
 
 import Test.Hspec
 import Test.QuickCheck
 
-import Logic
+import HsReasoner.Types
 
 -------------------------
 -- Arbitrary instances --

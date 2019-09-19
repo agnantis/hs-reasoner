@@ -16,7 +16,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module Logic where
+module HsReasoner.Types where
 
 --import Prelude                        hiding (head, tail)
 
