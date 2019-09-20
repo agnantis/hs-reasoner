@@ -17,8 +17,9 @@ let
           overrides = haskellPackagesNew: haskellPackagesOld: rec {
             hs-reasoner =
               let
+                ghcide = (import (builtins.fetchTarball "https://github.com/hercules-ci/ghcide-nix/tarball/master") {}).ghcide-ghc864;
                 devDeps = with haskellPackagesOld; if pkgs.lib.inNixShell then [ hlint ghcid doctest ] else [ ];
-                devSystemDeps = if pkgs.lib.inNixShell then [ pkgs.entr ] else [ ];
+                devSystemDeps = if pkgs.lib.inNixShell then [ pkgs.entr ghcide ] else [ ];
               in
                 haskellPackagesNew.callPackage ./default.nix { inherit devDeps; inherit devSystemDeps; };
           };

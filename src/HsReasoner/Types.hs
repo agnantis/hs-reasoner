@@ -206,5 +206,5 @@ mapOfRoles = M.fromListWith (++) . mapMaybe fltr
  where
    -- TODO: Support inverse roles
    fltr (RAssertion r a b) = Just (r, [(a, b)])
-   fltr _ = Nothing
+   fltr _ = Nothing 
 

@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fplugin=Polysemy.Plugin #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -10,13 +11,14 @@
 
 module HsReasoner.Tableaux where
 
-import           Control.Eff
-import           Control.Eff.State.Lazy
-import           Control.Eff.Writer.Lazy
+import           Polysemy
+import           Polysemy.State
+import           Polysemy.Writer
 import           Control.Monad                  (mapM_)
 import           Data.Functor.Foldable          (cata, embed)
 import           Data.List                      (intersect, nub)
 import           Data.Maybe                     (fromMaybe, isJust, mapMaybe)
+import           Data.Tuple                     (swap)
 import           Lens.Micro.Platform
 
 import           Debug.Trace
@@ -32,9 +34,9 @@ import           HsReasoner.Types
 --   * (Right) Branch; when the assertion cause the curent state to split to two new (alternative) states
 --   * (Right) Nothing; in any other case
 --
-expandAssertion :: ([Writer String, State TableauxState] <:: r)
+expandAssertion :: (Members [Writer String, State TableauxState] r)
                 => Assertion
-                -> Eff r (Either ClashException (Maybe Branch))
+                -> Sem r (Either ClashException (Maybe Branch))
 expandAssertion = \case
   CAssertion (Disjunction a b) x -> do -- break assertions and return them as branches
     debugAppLn "Disjunction found"
@@ -91,7 +93,7 @@ expandAssertion = \case
 
 removeBlockedAssertions :: Member (State TableauxState) r
                         => Individual
-                        -> Eff r ()
+                        -> Sem r ()
 removeBlockedAssertions i = do
   modify $ frontier %~ filter ((== Just i) . extractIndividual)
   pure ()
@@ -105,9 +107,9 @@ removeBlockedAssertions i = do
 -- In case of a clash it updates the state and returns the ClashException
 -- otherwise, it adds the assertion to the interpretation and returns Nothing
 --
-addToInterpretation :: ([Writer String, State TableauxState] <:: r)
+addToInterpretation :: Members [Writer String, State TableauxState] r
                     => Assertion
-                    -> Eff r (Either ClashException (Maybe Branch))
+                    -> Sem r (Either ClashException (Maybe Branch))
 addToInterpretation ci = do
   st <- get
   case clashesWith ci (view intrp st)  of
@@ -123,11 +125,11 @@ addToInterpretation ci = do
 
 -- | It tries to find all the possible blocking individuals of the input individual
 --
-findBlockingNodes :: ([Writer String, State TableauxState] <:: r)
+findBlockingNodes :: Members [Writer String, State TableauxState] r
                   => Individual
                   -> Role
                   -> Concept
-                  -> Eff r [Individual]
+                  -> Sem r [Individual]
 findBlockingNodes i r c = do
   state        <- get
   roleParents  <- roleParent r (Just i) -- get parents of i
@@ -197,7 +199,7 @@ clashExists c = isJust . clashesWith c
 
 -- | Returns the next uniq number of the state
 --
-nextUniq :: Member (State TableauxState) r => Eff r String
+nextUniq :: Member (State TableauxState) r => Sem r String
 nextUniq = do
   st <- get
   let (unq:rest) = view uniq st
@@ -207,7 +209,7 @@ nextUniq = do
 -- | Returns all the known filler individual of the provided role
 -- If input individual is not Nothing, it returns only the filler with this specific filler
 --
-fillers :: Member (State TableauxState) r => Role -> Maybe Individual -> Eff r [Individual]
+fillers :: Member (State TableauxState) r => Role -> Maybe Individual -> Sem r [Individual]
 fillers rl mi = do
   st <- get
   let
@@ -223,7 +225,7 @@ fillers rl mi = do
 -- | Returns all the known individuals that are parents in a specific role
 -- If input individual is not Nothing, it returns only the parents if this specific filler
 --
-roleParent :: Member (State TableauxState) r => Role -> Maybe Individual -> Eff r [Individual]
+roleParent :: Member (State TableauxState) r => Role -> Maybe Individual -> Sem r [Individual]
 roleParent r mi = do
   st <- get
   let ids = mapMaybe (fltr r mi)
@@ -238,7 +240,7 @@ roleParent r mi = do
 -- | Returns all individuals that have been introduce in the model, because of the 
 -- provided concept expansion
 --
-fromSameRule :: Member (State TableauxState) r => Concept -> Eff r [Individual]
+fromSameRule :: Member (State TableauxState) r => Concept -> Sem r [Individual]
 fromSameRule cpt = do
   st <- get
   let ids = fmap fst
@@ -249,7 +251,7 @@ fromSameRule cpt = do
 
 -- | Returns all individuals that beong to the provided concept
 --
-conceptIndividuals :: Member (State TableauxState) r => Concept -> Eff r [Individual]
+conceptIndividuals :: Member (State TableauxState) r => Concept -> Sem r [Individual]
 conceptIndividuals c = do
   st <- get
   let ids = mapMaybe (filterCAssertions c)
@@ -265,7 +267,7 @@ conceptIndividuals c = do
 -- | Checks if there is a filler individual for the input role where the parent is the provided
 -- individual and that also belongs to the input concept
 --
-fillerExists :: Member (State TableauxState) r => Role -> Concept -> Individual -> Eff r Bool
+fillerExists :: Member (State TableauxState) r => Role -> Concept -> Individual -> Sem r Bool
 fillerExists rl c i = do
   indsA <- fillers rl (Just i)
   indsB <- conceptIndividuals c
@@ -274,7 +276,7 @@ fillerExists rl c i = do
 
 -- | Returns all known concept that are imposed for a specific role
 --
-forAllRoles :: Member (State TableauxState ) r => Role -> Eff r [Concept]
+forAllRoles :: Member (State TableauxState ) r => Role -> Sem r [Concept]
 forAllRoles rl = do
   st <- get
   let existingRoles = fmap snd
@@ -283,7 +285,7 @@ forAllRoles rl = do
                     $ st
   pure existingRoles
 
-solve :: ([Writer String, State TableauxState] <:: r) => Eff r Interpretation
+solve :: Members [Writer String, State TableauxState] r => Sem r Interpretation
 solve = do
   st@Tableaux{..} <- get
   case _frontier of
@@ -322,7 +324,7 @@ solve = do
 
 -- | Creates a new individual
 --
-newIndividual :: Member (State TableauxState) r => Eff r Individual
+newIndividual :: Member (State TableauxState) r => Sem r Individual
 newIndividual = Individual <$> nextUniq
 
 -- | Utility function to handle logging process
@@ -331,10 +333,10 @@ newIndividual = Individual <$> nextUniq
 -- to be collected. For performance reasons the actual logging should be trigger only
 -- for debugging purposes
 --
-debugAppLn :: Member (Writer String) r => String -> Eff r ()
+debugAppLn :: Member (Writer String) r => String -> Sem r ()
 debugAppLn = debugApp . flip (++) "\n"
 
-debugApp :: Member (Writer String) r => String -> Eff r ()
+debugApp :: Member (Writer String) r => String -> Sem r ()
 debugApp = const . pure $ () -- do nothing
 --debugApp = tell -- log to writer
 --debugApp msg = trace msg (tell msg) -- print to console and log to writer
@@ -439,21 +441,21 @@ isProvableS cgi tbox abox =
       existingInds = initState ^. inds
       ass = CAssertion negatedAss <$> existingInds -- build assertions from cgi for all existing inds
       newState   =  frontier %~ (ass <>) $ initState
-      ((_intr, _log::String), state) = run . runState newState . runMonoidWriter $ solve
+      ((_intr, _log::String), state) = run . runStateP newState . runMonoidWriter $ solve
   in state
 
 isValidModelS :: TBox -> ABox -> TableauxState
 isValidModelS tbox abox =
   let
       initState = initialTableaux tbox abox
-      ((_intr, _log::String), state) = run . runState initState . runMonoidWriter $ solve
+      ((_intr, _log::String), state) = run . runStateP initState . runMonoidWriter $ solve
   in state
 
 
 main :: IO () -- (Interpretation, String)
 main = do
   let theState = initialState
-      ((_interp, logs), st) = run . runState theState . runMonoidWriter $ solve
+      ((_interp, logs), st) = run . runStateP theState . runMonoidWriter $ solve
       theLines = [ "", "***************************", ""
                  , "TBOX: "
                  , unlines
@@ -535,6 +537,15 @@ orElse xs _  = xs
 dropUntil :: (a -> Bool)-> [a] -> [a]
 dropUntil f xs = fromMaybe [] (safeTail $ dropWhile f xs)
 
+-- Helper functions for the transition from extensible-effects to polysemy
+execState :: s -> Sem (State s ': r) a -> Sem r s
+execState s = fmap fst . runState s
+
+runMonoidWriter :: Monoid o => Sem (Writer o : r) a -> Sem r (a, o)
+runMonoidWriter = fmap swap . runWriter
+
+runStateP ::  s -> Sem (State s ': r) a -> Sem r (a, s)
+runStateP x = fmap swap . runState x
 
 ----------------
 -- Public API --
