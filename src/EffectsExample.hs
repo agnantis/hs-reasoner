@@ -4,8 +4,8 @@
 
 module EffectsExample where
 
-import Control.Eff
-import Control.Eff.Reader.Lazy
+import Polysemy
+import Polysemy.Reader
 
 
 data Expression
@@ -48,8 +48,7 @@ newtype Connection = Connection
 
 data LogLevel = Info | Warning | Error deriving (Show, Eq, Ord)
 
--- getLogLevel :: (Member (Reader Config) r, Member (Reader Connection) r) => String -> Eff r String
-getLogLevel :: ([Reader Config, Reader Connection] <:: r) => String -> Eff r String
+getLogLevel :: (Members [Reader Config, Reader Connection] r) => String -> Sem r String
 getLogLevel prefix = do
   Connection o3 <- ask
   Config _ o <- ask

@@ -17,9 +17,8 @@ let
           overrides = haskellPackagesNew: haskellPackagesOld: rec {
             hs-reasoner =
               let
-                ghcide = (import (builtins.fetchTarball "https://github.com/hercules-ci/ghcide-nix/tarball/master") {}).ghcide-ghc864;
-                devDeps = with haskellPackagesOld; if pkgs.lib.inNixShell then [ hlint ghcid doctest ] else [ ];
-                devSystemDeps = if pkgs.lib.inNixShell then [ pkgs.entr ghcide ] else [ ];
+                devDeps = with haskellPackagesOld; if pkgs.lib.inNixShell then [ hlint ghcid doctest pkgs.gitg ] else [ ];
+                devSystemDeps = if pkgs.lib.inNixShell then [ pkgs.entr ] else [ ];
               in
                 haskellPackagesNew.callPackage ./default.nix { inherit devDeps; inherit devSystemDeps; };
           };
@@ -27,10 +26,7 @@ let
       };
     };
   };
-
-  pkgs =
-    import (import ./nix/pinned-nixpkgs.nix) { inherit config; };
-
+  pkgs = import (import ./nix/pinned-nixpkgs.nix) { inherit config; };
 in
 {
   hs-reasoner = pkgs.haskellPackages.${compiler}.hs-reasoner;
