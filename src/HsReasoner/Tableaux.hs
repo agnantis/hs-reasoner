@@ -11,24 +11,109 @@
 
 module HsReasoner.Tableaux where
 
-import           Polysemy
-import           Polysemy.State
-import           Polysemy.Writer
 import           Control.Monad                  (mapM_)
 import           Data.Functor.Foldable          (cata, embed)
 import           Data.List                      (intersect, nub)
 import           Data.Maybe                     (fromMaybe, isJust, mapMaybe)
 import           Data.Tuple                     (swap)
 import           Lens.Micro.Platform
+import           Polysemy
+import           Polysemy.State
+import           Polysemy.Writer
 
-import           Debug.Trace
-
+-- import           Debug.Trace
 import           HsReasoner.Types
 
 
--- | Tablaux expansion rules
+---------------------
+-- Expansion rules --
+---------------------
+
+-- | Conjunction rule expansion
 --
--- It read the next available assertion and execute the correspnding rule
+andRule :: Member (Writer String) r
+        => Concept
+        -> Concept
+        -> Individual
+        -> Sem r Branch
+andRule a b i = do
+  debugAppLn "Disjunction found"
+  pure (CAssertion a i, CAssertion b i)
+
+-- | Disjunction rule expansion
+--
+orRule :: Member (State TableauxState) r
+       => Concept
+       -> Concept
+       -> Individual
+       -> Sem r ()
+orRule a b i = do
+  let newAssertions = [CAssertion a i, CAssertion b i]
+  modify $ frontier %~ (newAssertions<>)
+  pure ()
+
+-- | Forall rule expansion
+--
+allRule :: Member (State TableauxState) r
+        => Role
+        -> Concept
+        -> Sem r ()
+allRule r c = do
+  fils <- fillers r Nothing -- find all existing fillers of R(_, i)
+  let assertions = fmap (CAssertion c) fils -- add assertions for them
+  modify $ roles %~ ((r, c):) -- insert the new universal role
+  modify $ frontier %~ (assertions<>) -- add all new assertions
+  pure ()
+
+-- | At least rule expansion
+--
+existsRule :: Member (State TableauxState) r
+           => Role
+           -> Concept
+           -> Individual
+           -> Sem r ()
+existsRule r c x = do
+  let existsC = Exists r c
+  indExists <- fillerExists r c x
+  -- traceShow ("Exists: " ++ show indExists) $ pure ()
+  if indExists -- check if already a suitable individual exists
+  then
+    pure ()
+  else do
+    blockingNodes <- findBlockingNodes x r existsC
+    -- traceShow ("Blocking: " ++ show blockingNodes) $ pure ()
+    if (not . null) blockingNodes
+    then do
+      let blocker = head blockingNodes
+      modify $ blocked %~ ((x, blocker):) -- add node to the blocking ones
+      removeBlockedAssertions x -- remove assertion of blocked individuals
+      modify $ intrp %~ fmap (replaceIndividual x blocker) -- update interpretation; replace any reference to to the blocked individual with the blocking one
+      pure ()
+    else do
+      z <- newIndividual
+      modify $ inds %~ (z:) -- insert new individual
+      modify $ existInds %~ ((z, existsC):) -- insert new individual and the cause of this creation
+      state <- get
+      let
+        newAssertions = [CAssertion c z, RAssertion r x z]
+        tboxAssertions = fmap (flip CAssertion z) $ state ^. initialTBox
+      modify $ frontier %~ (<> (newAssertions <> tboxAssertions))
+      pure ()
+
+-- | Role assertion rule expansion
+--
+roleRule :: Member (State TableauxState) r
+         => Role
+         -> Individual
+         -> Sem r ()
+roleRule r f = do
+  cpts <- forAllRoles r
+  let assertions = fmap (flip CAssertion f) cpts -- add assertions for them
+  modify $ indRoles %~ ((f, r):) -- insert the new role filler
+  modify $ frontier %~ (assertions<>) -- add all new assertions
+  pure ()
+
+-- | The function reads the next available assertion and executes the corresponding expansion rule
 -- The function may return:
 --   * (Left) ClassException; when the assertion clashes with another assertion in the current imeplementation
 --   * (Right) Branch; when the assertion cause the curent state to split to two new (alternative) states
@@ -38,58 +123,14 @@ expandAssertion :: (Members [Writer String, State TableauxState] r)
                 => Assertion
                 -> Sem r (Either ClashException (Maybe Branch))
 expandAssertion = \case
-  CAssertion (Disjunction a b) x -> do -- break assertions and return them as branches
-    debugAppLn "Disjunction found"
-    pure . Right . Just $ (CAssertion a x, CAssertion b x)
+  CAssertion (Disjunction a b) x -> Right . Just <$> andRule a b x
+  CAssertion (Conjunction a b) x -> Right Nothing <$ orRule a b x
+  CAssertion (ForAll r c) _      -> Right Nothing <$ allRule r c
+  CAssertion (Exists r c) x      -> Right Nothing <$ existsRule r c x
+  a@(RAssertion r _ f)           -> roleRule r f >> addToInterpretation a -- try adding role assertion
+  ra@RInvAssertion{}             -> addToInterpretation ra -- TODO: extra actions may be required
+  ci@CAssertion{}                -> addToInterpretation ci
 
-  CAssertion (Conjunction a b) x -> do -- break assertions and add them to frontier
-    let newAssertions = [CAssertion a x, CAssertion b x]
-    modify $ frontier %~ (newAssertions<>) -- break assertions and add them
-    pure . Right $ Nothing
-
-  CAssertion existsC@(Exists r c) x -> do
-    indExists <- fillerExists r c x
-    traceShow ("Exists: " ++ show indExists) $ pure ()
-    if indExists -- check if already a suitable individual exists
-    then
-      pure . Right $ Nothing
-    else do
-      blockingNodes <- findBlockingNodes x r existsC
-      traceShow ("Blocking: " ++ show blockingNodes) $ pure ()
-      if (not . null) blockingNodes
-      then do
-        let blocker = head blockingNodes
-        modify $ blocked %~ ((x, blocker):) -- add node to the blocking ones
-        removeBlockedAssertions x -- remove assertion of blocked individuals
-        modify $ intrp %~ fmap (replaceIndividual x blocker) -- update interpretation; replace any reference to to the blocked individual with the blocking one
-        pure . Right $ Nothing
-      else do
-        z <- newIndividual
-        modify $ inds %~ (z:) -- insert new individual
-        modify $ existInds %~ ((z, existsC):) -- insert new individual and the cause of this creation
-        state <- get
-        let
-          newAssertions = [CAssertion c z, RAssertion r x z]
-          tboxAssertions = fmap (flip CAssertion z) $ state ^. initialTBox
-        modify $ frontier %~ (<> (newAssertions <> tboxAssertions))
-        pure . Right $ Nothing
-
-  CAssertion (ForAll r c) _ -> do
-    fils <- fillers r Nothing -- find all existing fillers of R(_, i)
-    let assertions = fmap (CAssertion c) fils -- add assertions for them
-    modify $ roles %~ ((r, c):) -- insert the new universal role
-    modify $ frontier %~ (assertions<>) -- add all new assertions
-    pure . Right $ Nothing
-
-  a@(RAssertion r _ f) -> do
-    cpts <- forAllRoles r
-    let assertions = fmap (flip CAssertion f) cpts -- add assertions for them
-    modify $ indRoles %~ ((f, r):) -- insert the new role filler
-    modify $ frontier %~ (assertions<>) -- add all new assertions
-    addToInterpretation a -- try adding role assertion
-
-  ra@RInvAssertion{} -> addToInterpretation ra
-  ci@CAssertion{}    -> addToInterpretation ci
 
 removeBlockedAssertions :: Member (State TableauxState) r
                         => Individual
@@ -125,7 +166,7 @@ addToInterpretation ci = do
 
 -- | It tries to find all the possible blocking individuals of the input individual
 --
-findBlockingNodes :: Members [Writer String, State TableauxState] r
+findBlockingNodes :: Member (State TableauxState) r
                   => Individual
                   -> Role
                   -> Concept
