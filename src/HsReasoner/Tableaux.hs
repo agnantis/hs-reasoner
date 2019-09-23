@@ -24,6 +24,33 @@ import           Polysemy.Writer
 -- import           Debug.Trace
 import           HsReasoner.Types
 
+class Eq a => DLogic a where
+  -- | Returns its inverse
+  --
+  inverse :: a -> a
+
+  -- | Checks if two elements are complement to each other
+  --
+  -- >>> Atomic "A" `isComplement` Not (Atomic "A")
+  -- True
+  --
+  -- >>> Atomic "A" `isComplement` Atomic "A"
+  -- False
+  --
+  isComplement :: a -> a -> Bool
+  x `isComplement` y = x == inverse y
+
+
+instance DLogic Concept where
+  -- | Inverse a concept. After the inversion conversion to dnf takes place
+  -- >>> inverse $ Not (Atomic "A")
+  -- Atomic "A"
+  inverse = toDNF . Not
+
+instance DLogic Assertion where
+  inverse (CAssertion c i) = CAssertion (inverse c) i
+  inverse (RAssertion r a b) = RInvAssertion r a b
+  inverse (RInvAssertion r a b) = RAssertion r a b
 
 ---------------------
 -- Expansion rules --
@@ -115,7 +142,7 @@ roleRule r f = do
 
 -- | The function reads the next available assertion and executes the corresponding expansion rule
 -- The function may return:
---   * (Left) ClassException; when the assertion clashes with another assertion in the current imeplementation
+--   * (Left) ClassException; when the assertion clashes with another assertion in the current implementation
 --   * (Right) Branch; when the assertion cause the curent state to split to two new (alternative) states
 --   * (Right) Nothing; in any other case
 --
@@ -190,34 +217,6 @@ replaceIndividual x y (RInvAssertion r a b) =
   let a' = if a == x then y else a
       b' = if b == x then y else b
   in RInvAssertion r a' b'
-
-class Eq a => DLogic a where
-  -- | Returns its inverse
-  --
-  -- >>> inverse $ Not (Atomic "A")
-  -- Atomic "A"
-  inverse :: a -> a
-
-  -- | Checks if two elements are complement to each other
-  --
-  -- >>> Atomic "A" `isComplement` Not (Atomic "A")
-  -- True
-  --
-  -- >>> Atomic "A" `isComplement` Atomic "A"
-  -- False
-  --
-  isComplement :: a -> a -> Bool
-  x `isComplement` y = x == inverse y
-
-
-instance DLogic Concept where
-  -- | Inverse a concept. After the inversion conversion to dnf takes place
-  inverse = toDNF . Not
-
-instance DLogic Assertion where
-  inverse (CAssertion c i) = CAssertion (inverse c) i
-  inverse (RAssertion r a b) = RInvAssertion r a b
-  inverse (RInvAssertion r a b) = RAssertion r a b
 
 -- | Checks if a concept (first argument) clashes with any of the concepts of the list
 --

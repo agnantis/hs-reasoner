@@ -14,6 +14,30 @@ TBA
 
 ## Implemented Features
 
-The hs-reasoner is able to:
+### Supported Description Logic constructors
 
-  - TBA
+The hs-reasoner currently supports:
+
+  - AL DL
+    - Universal concept
+    - Bottom concept
+    - Atomic negation
+    - Conjunction
+    - Value restriction
+    - Limited existential quantification
+  - AL[U]
+    - Disjunction
+  - AL[E]
+    - Full existential quantification
+  - AL[C] 
+    - Arbitrary negation
+
+The hs-reasoner currently does not support:
+
+- AL[N]
+  - Number restrictions
+  - Qualified number restrictions
+
+### Optimizations
+
+TBA
