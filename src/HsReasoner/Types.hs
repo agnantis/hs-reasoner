@@ -42,8 +42,10 @@ data Concept
   | IfOnlyIf Concept Concept    -- ^ A <-> B
   | Exists Role Concept         -- ^ ∃R.C
   | ForAll Role Concept         -- ^ ∀R.C
-  | Bottom                      -- ⊥
-  | Top                         -- T
+  | Bottom                      -- ^ ⊥
+  | Top                         -- ^ T
+  | LE Role Concept             -- ^ ≤R.C
+  | GE Role Concept             -- ^ ≥R.C
   | Atomic Label deriving (Show, Eq, Ord)
 
 makeBaseFunctor ''Concept
@@ -104,33 +106,6 @@ type Interpretation = Maybe ABox
 -- Some template magic
 makeLenses ''TableauxState
 
--- or:
---
--- import Data.Functor.Foldable
--- data ConceptF a
---   = ConjunctionF a a
---   | DisjunctionF a a
---   | NotF a
---   | ImpliesF a a
---   | IfOnlyIfF a a
---   | AtomicF Label deriving (Show, Eq, Functor, Foldable, Traversable)
--- type instance Base Concept = ConceptF
--- instance Recursive Concept where
---   project (Conjunction a b) = (ConjunctionF a) b
---   project (Disjunction a b) = (DisjunctionF a) b
---   project (Not a)           = NotF a
---   project (Implies a b)     = (ImpliesF a) b
---   project (IfOnlyIf a b)    = (IfOnlyIfF a) b
---   project (Atomic a)        = AtomicF a
---
--- instance Corecursive Concept where
---   embed (ConjunctionF a b) = (Conjunction a) b
---   embed (DisjunctionF a b) = (Disjunction a) b
---   embed (NotF a)           = Not a
---   embed (ImpliesF a b)     = (Implies a) b
---   embed (IfOnlyIfF a b)    = (IfOnlyIf a) b
---   embed (AtomicF a)        = Atomic a
-
 
 class Pretty a where
   pPrint :: a -> String
@@ -149,10 +124,12 @@ instance Pretty Concept where
     algebra (NotF a)           = "(" ++ "¬" ++ a ++ ")"
     algebra (ImpliesF a b)     = "(" ++ a ++ " → " ++ b ++ ")"
     algebra (IfOnlyIfF a b)    = "(" ++ a ++ " ↔ " ++ b ++ ")"
-    algebra (ExistsF r c)     = "(" ++ "∃" ++ pPrint r ++ "." ++ c ++ ")"
+    algebra (ExistsF r c)      = "(" ++ "∃" ++ pPrint r ++ "." ++ c ++ ")"
     algebra (ForAllF r c)      = "(" ++ "∀" ++ pPrint r ++ "." ++ c ++ ")"
     algebra BottomF            = "⊥"
     algebra TopF               = "⏉"
+    algebra (LEF r c)          = "(" ++ "≤" ++ pPrint r ++ "." ++ c ++ ")"
+    algebra (GEF r c)          = "(" ++ "≥" ++ pPrint r ++ "." ++ c ++ ")"
     algebra (AtomicF a)        = a
 
 instance Pretty CGI where

@@ -127,6 +127,24 @@ existsRule r c x = do
       modify $ frontier %~ (<> (newAssertions <> tboxAssertions))
       pure ()
 
+-- | LessEqual rule expansion
+--
+lessEqRule :: Member (State TableauxState) r
+           => Role
+           -> Concept
+           -> Individual
+           -> Sem r ()
+lessEqRule r c x = undefined
+
+-- | GreaterEqual rule expansion
+--
+greaterEqRule :: Member (State TableauxState) r
+              => Role
+              -> Concept
+              -> Individual
+              -> Sem r ()
+greaterEqRule r c x = undefined
+
 -- | Role assertion rule expansion
 --
 roleRule :: Member (State TableauxState) r
@@ -154,6 +172,8 @@ expandAssertion = \case
   CAssertion (Conjunction a b) x -> Right Nothing <$ orRule a b x
   CAssertion (ForAll r c) _      -> Right Nothing <$ allRule r c
   CAssertion (Exists r c) x      -> Right Nothing <$ existsRule r c x
+  CAssertion (LE r c) x          -> Right Nothing <$ lessEqRule r c x
+  CAssertion (GE r c) x          -> Right Nothing <$ greaterEqRule r c x
   a@(RAssertion r _ f)           -> roleRule r f >> addToInterpretation a -- try adding role assertion
   ra@RInvAssertion{}             -> addToInterpretation ra -- TODO: extra actions may be required
   ci@CAssertion{}                -> addToInterpretation ci
