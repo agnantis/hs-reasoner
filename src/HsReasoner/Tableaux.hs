@@ -129,21 +129,30 @@ existsRule r c x = do
 
 -- | LessEqual rule expansion
 --
-lessEqRule :: Member (State TableauxState) r
-           => Role
+atMostRule :: Member (State TableauxState) r
+           => Int
+           -> Role
            -> Concept
            -> Individual
            -> Sem r ()
-lessEqRule r c x = undefined
+atMostRule n r c x = undefined
+  -- 1. extract all fillers
+  -- 2. get all the unique fillers
+  -- 3. if they are less than n
+  --    F:.do nothing
+  --    T: a. create n new (or n-unique?)
+  --       b. marked them as pairwise distinct and add the info to the state
+  --       c. create the roles with the new inds and add them to the state
 
 -- | GreaterEqual rule expansion
 --
-greaterEqRule :: Member (State TableauxState) r
-              => Role
+atLeastRule :: Member (State TableauxState) r
+              => Int
+              -> Role
               -> Concept
               -> Individual
               -> Sem r ()
-greaterEqRule r c x = undefined
+atLeastRule n r c x = undefined
 
 -- | Role assertion rule expansion
 --
@@ -172,8 +181,8 @@ expandAssertion = \case
   CAssertion (Conjunction a b) x -> Right Nothing <$ orRule a b x
   CAssertion (ForAll r c) _      -> Right Nothing <$ allRule r c
   CAssertion (Exists r c) x      -> Right Nothing <$ existsRule r c x
-  CAssertion (LE r c) x          -> Right Nothing <$ lessEqRule r c x
-  CAssertion (GE r c) x          -> Right Nothing <$ greaterEqRule r c x
+  CAssertion (AtMost n r c) x    -> Right Nothing <$ atMostRule n r c x
+  CAssertion (AtLeast n r c) x   -> Right Nothing <$ atLeastRule n r c x
   a@(RAssertion r _ f)           -> roleRule r f >> addToInterpretation a -- try adding role assertion
   ra@RInvAssertion{}             -> addToInterpretation ra -- TODO: extra actions may be required
   ci@CAssertion{}                -> addToInterpretation ci

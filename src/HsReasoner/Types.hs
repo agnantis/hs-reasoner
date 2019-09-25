@@ -1,20 +1,19 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TemplateHaskell #-}
-
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeOperators #-}
-
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module HsReasoner.Types where
 
@@ -30,7 +29,7 @@ import           Lens.Micro.Platform
 -- import Debug.Trace
 
 type Label = String
-newtype Individual = Individual Label deriving (Show, Eq)
+newtype Individual = Individual Label deriving (Show, Eq, Ord)
 
 newtype Role = Role Label deriving (Show, Eq, Ord)
 
@@ -44,8 +43,8 @@ data Concept
   | ForAll Role Concept         -- ^ ∀R.C
   | Bottom                      -- ^ ⊥
   | Top                         -- ^ T
-  | LE Role Concept             -- ^ ≤R.C
-  | GE Role Concept             -- ^ ≥R.C
+  | AtMost Int Role Concept     -- ^ ≤xR.C
+  | AtLeast Int Role Concept    -- ^ ≥xR.C
   | Atomic Label deriving (Show, Eq, Ord)
 
 makeBaseFunctor ''Concept
@@ -128,8 +127,8 @@ instance Pretty Concept where
     algebra (ForAllF r c)      = "(" ++ "∀" ++ pPrint r ++ "." ++ c ++ ")"
     algebra BottomF            = "⊥"
     algebra TopF               = "⏉"
-    algebra (LEF r c)          = "(" ++ "≤" ++ pPrint r ++ "." ++ c ++ ")"
-    algebra (GEF r c)          = "(" ++ "≥" ++ pPrint r ++ "." ++ c ++ ")"
+    algebra (AtMostF n r c)    = "(" ++ "≤" ++ show n ++ pPrint r ++ "." ++ c ++ ")"
+    algebra (AtLeastF n r c)   = "(" ++ "≥" ++ show n ++ pPrint r ++ "." ++ c ++ ")"
     algebra (AtomicF a)        = a
 
 instance Pretty CGI where
@@ -156,11 +155,16 @@ instance Pretty TableauxState where
    where
     join :: (Pretty a, Eq a) => [a] -> String
     join = intercalate ", " . fmap pPrint . nub
-    --delta = "∆ = {" ++ join _inds ++ "}"
-    delta = "D = {" ++ join _inds ++ "}"
+    delta = "∆ = {" ++ join _inds ++ "}"
+    --delta = "D = {" ++ join _inds ++ "}"
     rls = printMapOfRoles . mapOfRoles $ _intrp
     cnt = printMapOfConcepts . mapOfConcepts $ _intrp
-    blck = "B = {" ++ join _blocked ++ "}"
+    blck = if null _blocked then "" else "Blk = {" ++ join _blocked ++ "}"
+
+printMapOfConcepts' :: M.Map Concept [Individual] -> String
+printMapOfConcepts' = intercalate ", " . fmap showPair . M.toList
+ where
+  showPair (c, is) = pPrint c ++ " = {" ++ intercalate ", " (pPrint <$> nub is) ++ "}"
 
 printMapOfConcepts :: M.Map Concept [Individual] -> String
 printMapOfConcepts = intercalate ", " . fmap showPair . M.toList
@@ -184,4 +188,16 @@ mapOfRoles = M.fromListWith (++) . mapMaybe fltr
    -- TODO: Support inverse roles
    fltr (RAssertion r a b) = Just (r, [(a, b)])
    fltr _ = Nothing 
+
+---------------------------
+-- General purpose utils --
+---------------------------
+
+-- | Utility function to swap key values from maps, where the values are lists
+--
+-- >>> M.toList . swapMap . M.fromList $ [("C", ["a", "b"]), ("D", ["c", "d", "b"])]
+-- [("a",["C"]),("b",["D","C"]),("c",["D"]),("d",["D"])]
+--
+swapMap :: (Ord a, Ord b) => M.Map a [b] -> M.Map b [a]
+swapMap = M.fromListWith (<>) . concatMap (\(a, b) -> fmap (, [a]) b) . M.toList
 

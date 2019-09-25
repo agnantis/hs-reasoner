@@ -85,6 +85,24 @@ cgiA, cgiB, cgiC :: CGI
 cgiA = simpleCGI $ classA `Implies` classB
 cgiB = simpleCGI classA
 cgiC = simpleCGI $ Not classB
+
+-- Example D --
+roleR :: Role
+roleR = Role "R"
+
+concept1, concept2, concept3, concept4 :: Concept
+concept1 = Exists roleR classA
+concept2 = Exists roleR classB
+concept3 = AtMost 1 roleR Top
+concept4 = Exists roleR (Conjunction classA classB)
+
+exampleD :: CGI
+exampleD = Conjunction concept1 concept2 `isSubsumedBy` concept4
+
+exampleE :: CGI
+exampleE = Conjunction concept1 (Conjunction concept2 concept3) `isSubsumedBy` concept4
+
+
 -------------------
 -- Testing specs --
 -------------------
@@ -125,4 +143,13 @@ unitTests =
 
     it "that invalidates 'implies' should not hold" $
       isValidModel [cgiA, cgiB, cgiC] [] `shouldNotBe` True
+
+    it "of exampleD should not hold" $
+      isProvable exampleD [] [] `shouldNotBe` True
+  
+--    it "temp: of exampleD should not hold" $
+--      pPrint (isProvableS exampleD [] []) `shouldBe` ""
+
+    it "of exampleE should hold" $
+      isProvable exampleE [] [] `shouldBe` True
   
