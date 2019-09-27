@@ -12,8 +12,9 @@
 module HsReasoner.Tableaux where
 
 import           Control.Monad                  (mapM_)
+import           Data.Function                  (on)
 import           Data.Functor.Foldable          (cata, embed)
-import           Data.List                      (intersect, nub)
+import           Data.List                      (intersect, maximumBy, nub, sort)
 import           Data.Maybe                     (fromMaybe, isJust, mapMaybe)
 import           Data.Tuple                     (swap)
 import           Lens.Micro.Platform
@@ -21,7 +22,13 @@ import           Polysemy
 import           Polysemy.State
 import           Polysemy.Writer
 
--- import           Debug.Trace
+import           Data.Set (Set)
+import qualified Data.Set as S
+import           Data.Map (Map)
+import qualified Data.Map as M
+import           Data.Monoid
+
+import           Debug.Trace
 import           HsReasoner.Types
 
 class Eq a => DLogic a where
@@ -657,5 +664,51 @@ isValidModel :: TBox -> ABox -> Bool
 isValidModel tbox abox =
   let state = isValidModelS tbox abox
   in  Completed == state ^. status
+
+
+
+-------------------
+--
+-- PLAYGROUND 
+--
+-------------------
+
+
+-- | Given a list of pairwise different elements, the function return the maximum (in length) list
+-- with distinct elements
+-- 
+-- >>> :{
+-- >>> let difList =
+-- >>>             [ (1,2)
+-- >>>             , (1,4)
+-- >>>             , (2,4)
+-- >>>             , (3,4)
+-- >>>             ]
+-- >>> in maxDistinctFromPairs difList
+-- >>> :}
+-- [1,2,4]
+--
+maxDistinctFromPairs :: (Show a, Ord a) => [(a, a)] -> [a]
+maxDistinctFromPairs pl = maxDistincts theMap els
+ where
+  theMap = M.fromListWith (flip (<>)) $ fmap (fmap singleton)  pl
+  els    = nub . sort $ M.keys theMap <> concat (M.elems theMap)
+
+  maxDistincts :: (Show a, Ord a) => Map a [a] -> [a] -> [a]
+  maxDistincts m = go (M.filter (not.null) m)
+   where
+    go mp [] = []
+    go mp (x:xs)
+      | M.null mp = [x]
+      | otherwise = maximumBy (compare `on` length) [case1, case2]
+     where
+      candidates = M.findWithDefault [] x mp
+      newMap = M.restrictKeys (M.delete x mp) (S.fromList candidates)
+      newMap' = fmap (intersect candidates) newMap
+      case1 = [x] <> maxDistincts newMap' (filter (`elem` candidates) xs)
+      case2 = maxDistincts newMap xs
+
+singleton :: a -> [a]
+singleton = pure
 
 
