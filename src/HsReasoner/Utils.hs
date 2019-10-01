@@ -34,14 +34,6 @@ safeHead :: [a] -> Maybe a
 safeHead []    = Nothing
 safeHead (x:_) = Just x
 
-difList =
-        [ (1,2)
-        --, (1,4)
-        , (3,2)
-        , (2,4)
-        , (3,4)
-        ]
-
 distinctSets :: (Show a, Ord a) => [(a, a)] -> [[a]]
 distinctSets pl = allSets <> singletons
  where

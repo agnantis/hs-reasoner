@@ -5,13 +5,14 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
 module HsReasoner.Tableaux where
 
-import           Control.Monad                  (mapM_)
+import           Control.Monad                  (mapM_, replicateM)
 import           Data.Functor.Foldable          (cata, embed)
 import           Data.List                      (intersect, nub)
 import           Data.Maybe                     (fromMaybe, isJust, mapMaybe)
@@ -129,7 +130,13 @@ existsRule r c x = do
       pure ()
 
 -- | LessEqual rule expansion
---
+-- 1. extract all fillers
+-- 2. get all the unique fillers
+-- 3. if they are less than n
+--    F:.do nothing
+--    T: a. create n new (or n-unique?)
+--       b. marked them as pairwise distinct and add the info to the state
+--       c. create the roles with the new inds and add them to the state
 atMostRule :: Member (State TableauxState) r
            => Int
            -> Role
@@ -137,13 +144,6 @@ atMostRule :: Member (State TableauxState) r
            -> Individual
            -> Sem r ()
 atMostRule n r c x = undefined
-  -- 1. extract all fillers
-  -- 2. get all the unique fillers
-  -- 3. if they are less than n
-  --    F:.do nothing
-  --    T: a. create n new (or n-unique?)
-  --       b. marked them as pairwise distinct and add the info to the state
-  --       c. create the roles with the new inds and add them to the state
 
 -- | GreaterEqual rule expansion
 --
@@ -153,7 +153,36 @@ atLeastRule :: Member (State TableauxState) r
               -> Concept
               -> Individual
               -> Sem r ()
-atLeastRule n r c x = undefined
+atLeastRule n r c x = do
+  let atLeastC = AtLeast n r c
+  ex <- roleFillers r c x
+  -- traceShow ("Exists: " ++ show indExists) $ pure ()
+  if length ex >= n -- check if there are existing individuals
+  then
+    pure ()
+  else do
+    blockingNodes <- findBlockingNodes x r atLeastC
+    -- traceShow ("Blocking: " ++ show blockingNodes) $ pure ()
+    if (not . null) blockingNodes
+    then do
+      let blocker = head blockingNodes
+      modify $ blocked %~ ((x, blocker):) -- add node to the blocking ones
+      removeBlockedAssertions x -- remove assertion of blocked individuals
+      modify $ intrp %~ fmap (replaceIndividual x blocker) -- update interpretation; replace any reference to to the blocked individual with the blocking one
+      pure ()
+    else do
+      zs <- replicateM n newIndividual
+      traceShow ("new inds: " ++ show zs) $ pure ()
+      modify $ inds %~ (zs <>) -- insert new individual
+      let newIndRules = (, atLeastC) <$> zs
+      modify $ existInds %~ (newIndRules <>) -- insert new individual and the cause of this creation
+      state <- get
+      let
+        newAssertions = (\i -> [CAssertion c i, RAssertion r x i]) <$> zs
+        tboxAssertions = (\c -> CAssertion c <$> zs) <$> state ^. initialTBox
+      modify $ frontier %~ (<> concat (newAssertions <> tboxAssertions))
+      pure ()
+
 
 -- | Role assertion rule expansion
 --
@@ -321,6 +350,9 @@ fromSameRule cpt = do
 
 -- | Returns all individuals that beong to the provided concept
 --
+-- TODO: the code does not handle the cases where a concept C subsumes concept C'
+-- and we ask for individuals that belong to C. The code should return individuals
+-- of C' as well, but currently it does not do that
 conceptIndividuals :: Member (State TableauxState) r => Concept -> Sem r [Individual]
 conceptIndividuals c = do
   st <- get
@@ -338,10 +370,16 @@ conceptIndividuals c = do
 -- individual and that also belongs to the input concept
 --
 fillerExists :: Member (State TableauxState) r => Role -> Concept -> Individual -> Sem r Bool
-fillerExists rl c i = do
+fillerExists rl c i =  not.null <$> roleFillers rl c i
+
+-- | Returns all the filler individuals for the input role where the parent is the provided
+-- individual and that also belongs to the input concept
+--
+roleFillers :: Member (State TableauxState) r => Role -> Concept -> Individual -> Sem r [Individual]
+roleFillers rl c i = do
   indsA <- fillers rl (Just i)
   indsB <- conceptIndividuals c
-  pure . not . null $ intersect indsA indsB
+  pure $ intersect indsA indsB
 
 
 -- | Returns all known concept that are imposed for a specific role
@@ -658,4 +696,3 @@ isValidModel :: TBox -> ABox -> Bool
 isValidModel tbox abox =
   let state = isValidModelS tbox abox
   in  Completed == state ^. status
-
