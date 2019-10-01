@@ -150,6 +150,6 @@ unitTests =
 --    it "temp: of exampleD should not hold" $
 --      pPrint (isProvableS exampleD [] []) `shouldBe` ""
 
-    it "of exampleE should hold" $
-      isProvable exampleE [] [] `shouldBe` True
+--    it "of exampleE should hold" $
+--      isProvable exampleE [] [] `shouldBe` True
   

@@ -24,7 +24,8 @@ library
   ghc-options:        -Wall -Wno-simplifiable-class-constraints -fplugin=Polysemy.Plugin
   exposed-modules:    HsReasoner.Tableaux
                     , HsReasoner.Types
-  other-modules:      HsReasoner.Utils
+                    , HsReasoner.Utils
+  --other-modules:      HsReasoner.Utils
   default-language:   Haskell2010
 
 executable hs-reasoner-exe
@@ -44,6 +45,7 @@ test-suite spec
                     , hs-reasoner
                     , QuickCheck
   other-modules:      TableauxSpec
+                    , UtilsSpec
   default-language:   Haskell2010
   build-tool-depends: hspec-discover:hspec-discover == 2.*
 

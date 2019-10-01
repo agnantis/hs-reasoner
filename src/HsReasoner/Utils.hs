@@ -43,11 +43,13 @@ difList =
         ]
 
 distinctSets :: (Show a, Ord a) => [(a, a)] -> [[a]]
-distinctSets pl = maxDistincts theMap els
+distinctSets pl = allSets <> singletons
  where
   sortedPairs = (\(x, y) -> if x > y then (y,x) else (x,y)) <$> pl
-  theMap = M.fromListWith (flip (<>)) . fmap (fmap singleton) $ sortedPairs
+  theMap = M.fromListWith (<>) . fmap (fmap singleton) $ sortedPairs
   els    = nub . sort $ M.keys theMap <> concat (M.elems theMap)
+  singletons = pure <$> els
+  allSets = filter ((>1) . length) (maxDistincts theMap els)
 
   maxDistincts :: (Show a, Ord a) => Map a [a] -> [a] -> [[a]]
   maxDistincts m = go (M.filter (not.null) m)
@@ -58,10 +60,10 @@ distinctSets pl = maxDistincts theMap els
       | otherwise = case1 <> case2
      where
       candidates = M.findWithDefault [] x mp
-      newMap = M.restrictKeys (M.delete x mp) (S.fromList candidates)
+      mapTail = M.delete x mp
+      newMap = M.restrictKeys mapTail (S.fromList candidates)
       newMap' = fmap (intersect candidates) newMap
       case1 = (x:) <$> maxDistincts newMap' (filter (`elem` candidates) xs)
-      --case2 = maxDistincts newMap xs
-      case2 = maxDistincts (M.delete x mp) xs
+      case2 = maxDistincts mapTail xs
 
 
