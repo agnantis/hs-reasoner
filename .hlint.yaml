@@ -1,0 +1,4 @@
+# I prefer `concat` instead of `++` even for only two elements
+- ignore: { name: Use ++ }
+# sortOn performance is worse than sortBy comparing
+- ignore: { name: Use sortOn }

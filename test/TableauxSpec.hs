@@ -102,6 +102,9 @@ exampleD = Conjunction concept1 concept2 `isSubsumedBy` concept4
 exampleE :: CGI
 exampleE = Conjunction concept1 (Conjunction concept2 concept3) `isSubsumedBy` concept4
 
+exFconcept1, exFconcept2 :: Concept
+exFconcept1 = AtLeast 3 roleR Top
+exFconcept2 = AtMost 2 roleR Top
 
 -------------------
 -- Testing specs --
@@ -147,9 +150,12 @@ unitTests =
     it "of exampleD should not hold" $
       isProvable exampleD [] [] `shouldNotBe` True
   
---    it "temp: of exampleD should not hold" $
---      pPrint (isProvableS exampleD [] []) `shouldBe` ""
-
+-- AtMost: not implemented yet
 --    it "of exampleE should hold" $
 --      isProvable exampleE [] [] `shouldBe` True
-  
+--  
+--    it "temp: of exampleE should not hold" $
+--      pPrint (isProvableS exampleE [] []) `shouldBe` ""
+
+    it "with >=nC && <=(n-1)C should not be valid" $
+      isValidModel (SimpleCGI <$> [exFconcept1, exFconcept2]) [] `shouldNotBe` True

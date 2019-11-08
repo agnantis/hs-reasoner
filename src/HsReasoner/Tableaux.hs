@@ -94,40 +94,15 @@ allRule r c = do
   modify $ frontier %~ (assertions<>) -- add all new assertions
   pure ()
 
--- | At least rule expansion
+-- | At least rule expansion. A special version of the at least restriction
+-- (where n = 1)
 --
 existsRule :: Member (State TableauxState) r
            => Role
            -> Concept
            -> Individual
            -> Sem r ()
-existsRule r c x = do
-  let existsC = Exists r c
-  indExists <- fillerExists r c x
-  -- traceShow ("Exists: " ++ show indExists) $ pure ()
-  if indExists -- check if already a suitable individual exists
-  then
-    pure ()
-  else do
-    blockingNodes <- findBlockingNodes x r existsC
-    -- traceShow ("Blocking: " ++ show blockingNodes) $ pure ()
-    if (not . null) blockingNodes
-    then do
-      let blocker = head blockingNodes
-      modify $ blocked %~ ((x, blocker):) -- add node to the blocking ones
-      removeBlockedAssertions x -- remove assertion of blocked individuals
-      modify $ intrp %~ fmap (replaceIndividual x blocker) -- update interpretation; replace any reference to to the blocked individual with the blocking one
-      pure ()
-    else do
-      z <- newIndividual
-      modify $ inds %~ (z:) -- insert new individual
-      modify $ existInds %~ ((z, existsC):) -- insert new individual and the cause of this creation
-      state <- get
-      let
-        newAssertions = [CAssertion c z, RAssertion r x z]
-        tboxAssertions = fmap (flip CAssertion z) $ state ^. initialTBox
-      modify $ frontier %~ (<> (newAssertions <> tboxAssertions))
-      pure ()
+existsRule = atLeastRule 1
 
 -- | LessEqual rule expansion
 -- 1. extract all fillers
@@ -145,7 +120,7 @@ atMostRule :: Member (State TableauxState) r
            -> Sem r ()
 atMostRule n r c x = undefined
 
--- | GreaterEqual rule expansion
+-- | GreaterEqual rule expansion. A more general version of existensial quantifier
 --
 atLeastRule :: Member (State TableauxState) r
               => Int

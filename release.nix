@@ -17,8 +17,12 @@ let
           overrides = haskellPackagesNew: haskellPackagesOld: rec {
             hs-reasoner =
               let
-                devDeps = with haskellPackagesOld; if pkgs.lib.inNixShell then [ hlint ghcid doctest pkgs.gitg ] else [ ];
-                devSystemDeps = if pkgs.lib.inNixShell then [ pkgs.entr ] else [ ];
+                ghcide = (import (builtins.fetchTarball "https://github.com/hercules-ci/ghcide-nix/tarball/master") {}).ghcide-ghc864;
+                # uncomment to use haskell-ide-engine (not working for cabal 3)
+                #all-hies = import (fetchTarball "https://github.com/infinisil/all-hies/tarball/master") {};
+                #hie-864 = (all-hies.selection { selector = p: { inherit (p) ghc864; }; });
+                devDeps = with haskellPackagesOld; if pkgs.lib.inNixShell then [ hlint ghcid doctest pkgs.gitg Cabal_2_4_1_0 ] else [ ];
+                devSystemDeps = if pkgs.lib.inNixShell then [ pkgs.entr ghcide hie-864 ] else [ ];
               in
                 haskellPackagesNew.callPackage ./default.nix { inherit devDeps; inherit devSystemDeps; };
           };
