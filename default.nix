@@ -1,4 +1,4 @@
-{ mkDerivation, stdenv, base, containers, hspec, microlens-platform, mtl
+{ mkDerivation, stdenv, base, containers, criterion, hspec, microlens-platform, mtl
 , polysemy, polysemy-plugin, recursion-schemes, template-haskell, QuickCheck
 , devDeps ? [ ]
 , devSystemDeps ? [ ]
@@ -11,7 +11,7 @@ mkDerivation {
   isExecutable = true;
   buildDepends = devSystemDeps;
   libraryHaskellDepends = [
-    base containers hspec microlens-platform mtl polysemy
+    base containers criterion hspec microlens-platform mtl polysemy
     polysemy-plugin recursion-schemes template-haskell QuickCheck
   ] ++ devDeps;
   executableHaskellDepends = [ base ];

@@ -22,7 +22,7 @@ let
                 #all-hies = import (fetchTarball "https://github.com/infinisil/all-hies/tarball/master") {};
                 #hie-864 = (all-hies.selection { selector = p: { inherit (p) ghc864; }; });
                 devDeps = with haskellPackagesOld; if pkgs.lib.inNixShell then [ hlint ghcid doctest pkgs.gitg Cabal_2_4_1_0 ] else [ ];
-                devSystemDeps = if pkgs.lib.inNixShell then [ pkgs.entr ghcide hie-864 ] else [ ];
+                devSystemDeps = if pkgs.lib.inNixShell then [ pkgs.entr ghcide ] else [ ];
               in
                 haskellPackagesNew.callPackage ./default.nix { inherit devDeps; inherit devSystemDeps; };
           };

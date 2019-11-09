@@ -1,13 +1,14 @@
 module HsReasoner.Utils where
 
-import           Data.List        (intersect, maximumBy, nub, sort, sortBy)
+import           Data.List        (intersect, nub, sort, sortBy)
 import           Data.Map         (Map)
 import qualified Data.Map    as M
 import           Data.Maybe       (fromMaybe)
 import           Data.Ord         (comparing, Down(..))
 import qualified Data.Set    as S
 
-import           Debug.Trace
+-- import           Debug.Trace
+
 -- | Given a list of pairwise different elements, the function return the maximum (in length) list
 -- with distinct elements
 -- 

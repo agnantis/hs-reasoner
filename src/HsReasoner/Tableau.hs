@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
-module HsReasoner.Tableaux where
+module HsReasoner.Tableau where
 
 import           Control.Monad                  (mapM_, replicateM)
 import           Data.Functor.Foldable          (cata, embed)
@@ -71,7 +71,7 @@ andRule a b i = do
 
 -- | Disjunction rule expansion
 --
-orRule :: Member (State TableauxState) r
+orRule :: Member (State TableauState) r
        => Concept
        -> Concept
        -> Individual
@@ -83,7 +83,7 @@ orRule a b i = do
 
 -- | Forall rule expansion
 --
-allRule :: Member (State TableauxState) r
+allRule :: Member (State TableauState) r
         => Role
         -> Concept
         -> Sem r ()
@@ -97,7 +97,7 @@ allRule r c = do
 -- | At least rule expansion. A special version of the at least restriction
 -- (where n = 1)
 --
-existsRule :: Member (State TableauxState) r
+existsRule :: Member (State TableauState) r
            => Role
            -> Concept
            -> Individual
@@ -112,17 +112,17 @@ existsRule = atLeastRule 1
 --    T: a. create n new (or n-unique?)
 --       b. marked them as pairwise distinct and add the info to the state
 --       c. create the roles with the new inds and add them to the state
-atMostRule :: Member (State TableauxState) r
+atMostRule :: Member (State TableauState) r
            => Int
            -> Role
            -> Concept
            -> Individual
            -> Sem r ()
-atMostRule n r c x = undefined
+atMostRule = undefined
 
 -- | GreaterEqual rule expansion. A more general version of existensial quantifier
 --
-atLeastRule :: Member (State TableauxState) r
+atLeastRule :: Member (State TableauState) r
               => Int
               -> Role
               -> Concept
@@ -151,17 +151,15 @@ atLeastRule n r c x = do
       modify $ inds %~ (zs <>) -- insert new individual
       let newIndRules = (, atLeastC) <$> zs
       modify $ existInds %~ (newIndRules <>) -- insert new individual and the cause of this creation
-      state <- get
       let
-        newAssertions = (\i -> [CAssertion c i, RAssertion r x i]) <$> zs
-        tboxAssertions = (\c -> CAssertion c <$> zs) <$> state ^. initialTBox
-      modify $ frontier %~ (<> concat (newAssertions <> tboxAssertions))
+        newAssertions = concat $ (\i -> [CAssertion c i, RAssertion r x i]) <$> zs
+      modify $ frontier %~ (<> newAssertions)
       pure ()
 
 
 -- | Role assertion rule expansion
 --
-roleRule :: Member (State TableauxState) r
+roleRule :: Member (State TableauState) r
          => Role
          -> Individual
          -> Sem r ()
@@ -178,7 +176,7 @@ roleRule r f = do
 --   * (Right) Branch; when the assertion cause the curent state to split to two new (alternative) states
 --   * (Right) Nothing; in any other case
 --
-expandAssertion :: (Members [Writer String, State TableauxState] r)
+expandAssertion :: (Members [Writer String, State TableauState] r)
                 => Assertion
                 -> Sem r (Either ClashException (Maybe Branch))
 expandAssertion = \case
@@ -193,7 +191,7 @@ expandAssertion = \case
   ci@CAssertion{}                -> addToInterpretation ci
 
 
-removeBlockedAssertions :: Member (State TableauxState) r
+removeBlockedAssertions :: Member (State TableauState) r
                         => Individual
                         -> Sem r ()
 removeBlockedAssertions i = do
@@ -209,7 +207,7 @@ removeBlockedAssertions i = do
 -- In case of a clash it updates the state and returns the ClashException
 -- otherwise, it adds the assertion to the interpretation and returns Nothing
 --
-addToInterpretation :: Members [Writer String, State TableauxState] r
+addToInterpretation :: Members [Writer String, State TableauState] r
                     => Assertion
                     -> Sem r (Either ClashException (Maybe Branch))
 addToInterpretation ci = do
@@ -227,7 +225,7 @@ addToInterpretation ci = do
 
 -- | It tries to find all the possible blocking individuals of the input individual
 --
-findBlockingNodes :: Member (State TableauxState) r
+findBlockingNodes :: Member (State TableauState) r
                   => Individual
                   -> Role
                   -> Concept
@@ -273,7 +271,7 @@ clashExists c = isJust . clashesWith c
 
 -- | Returns the next uniq number of the state
 --
-nextUniq :: Member (State TableauxState) r => Sem r String
+nextUniq :: Member (State TableauState) r => Sem r String
 nextUniq = do
   st <- get
   let (unq:rest) = view uniq st
@@ -283,7 +281,7 @@ nextUniq = do
 -- | Returns all the known filler individual of the provided role
 -- If input individual is not Nothing, it returns only the filler with this specific filler
 --
-fillers :: Member (State TableauxState) r => Role -> Maybe Individual -> Sem r [Individual]
+fillers :: Member (State TableauState) r => Role -> Maybe Individual -> Sem r [Individual]
 fillers rl mi = do
   st <- get
   let
@@ -299,7 +297,7 @@ fillers rl mi = do
 -- | Returns all the known individuals that are parents in a specific role
 -- If input individual is not Nothing, it returns only the parents if this specific filler
 --
-roleParent :: Member (State TableauxState) r => Role -> Maybe Individual -> Sem r [Individual]
+roleParent :: Member (State TableauState) r => Role -> Maybe Individual -> Sem r [Individual]
 roleParent r mi = do
   st <- get
   let ids = mapMaybe (fltr r mi)
@@ -314,7 +312,7 @@ roleParent r mi = do
 -- | Returns all individuals that have been introduce in the model, because of the 
 -- provided concept expansion
 --
-fromSameRule :: Member (State TableauxState) r => Concept -> Sem r [Individual]
+fromSameRule :: Member (State TableauState) r => Concept -> Sem r [Individual]
 fromSameRule cpt = do
   st <- get
   let ids = fmap fst
@@ -328,7 +326,7 @@ fromSameRule cpt = do
 -- TODO: the code does not handle the cases where a concept C subsumes concept C'
 -- and we ask for individuals that belong to C. The code should return individuals
 -- of C' as well, but currently it does not do that
-conceptIndividuals :: Member (State TableauxState) r => Concept -> Sem r [Individual]
+conceptIndividuals :: Member (State TableauState) r => Concept -> Sem r [Individual]
 conceptIndividuals c = do
   st <- get
   let ids = mapMaybe (filterCAssertions c)
@@ -344,13 +342,13 @@ conceptIndividuals c = do
 -- | Checks if there is a filler individual for the input role where the parent is the provided
 -- individual and that also belongs to the input concept
 --
-fillerExists :: Member (State TableauxState) r => Role -> Concept -> Individual -> Sem r Bool
+fillerExists :: Member (State TableauState) r => Role -> Concept -> Individual -> Sem r Bool
 fillerExists rl c i =  not.null <$> roleFillers rl c i
 
 -- | Returns all the filler individuals for the input role where the parent is the provided
 -- individual and that also belongs to the input concept
 --
-roleFillers :: Member (State TableauxState) r => Role -> Concept -> Individual -> Sem r [Individual]
+roleFillers :: Member (State TableauState) r => Role -> Concept -> Individual -> Sem r [Individual]
 roleFillers rl c i = do
   indsA <- fillers rl (Just i)
   indsB <- conceptIndividuals c
@@ -359,7 +357,7 @@ roleFillers rl c i = do
 
 -- | Returns all known concept that are imposed for a specific role
 --
-forAllRoles :: Member (State TableauxState ) r => Role -> Sem r [Concept]
+forAllRoles :: Member (State TableauState ) r => Role -> Sem r [Concept]
 forAllRoles rl = do
   st <- get
   let existingRoles = fmap snd
@@ -368,9 +366,9 @@ forAllRoles rl = do
                     $ st
   pure existingRoles
 
-solve :: Members [Writer String, State TableauxState] r => Sem r Interpretation
+solve :: Members [Writer String, State TableauState] r => Sem r Interpretation
 solve = do
-  st@Tableaux{..} <- get
+  st@Tableau{..} <- get
   case _frontier of
     []    -> do
       debugAppLn "Branch completed"
@@ -389,7 +387,7 @@ solve = do
           solve -- continue
         
         Right(Just(a, b)) -> do -- or block
-          let newStates :: [(TableauxState, String)]
+          let newStates :: [(TableauState, String)]
               newStates = do -- create branched states and run them
                 c' <- [a,b]
                 let st' = set frontier (c':cs) st
@@ -407,7 +405,7 @@ solve = do
 
 -- | Creates a new individual
 --
-newIndividual :: Member (State TableauxState) r => Sem r Individual
+newIndividual :: Member (State TableauState) r => Sem r Individual
 newIndividual = Individual <$> nextUniq
 
 -- | Utility function to handle logging process
@@ -424,12 +422,12 @@ debugApp = const . pure $ () -- do nothing
 --debugApp = tell -- log to writer
 --debugApp msg = trace msg (tell msg) -- print to console and log to writer
 
--- | Provided a list of @TableauxState it tries to find and return the first
+-- | Provided a list of @TableauState it tries to find and return the first
 -- clash-free completed interpretation
 --
-getInterpretation :: [TableauxState] -> Maybe TableauxState
+getInterpretation :: [TableauState] -> Maybe TableauState
 getInterpretation = safeHead      -- a single interpretation is enough
-                  . filter ((== Completed) . view status) -- get only the completed tableaux
+                  . filter ((== Completed) . view status) -- get only the completed tableau
 
 cgiToConcept :: CGI -> Concept
 cgiToConcept (c1 `Subsumes` c2)   = c2 `Implies` c1
@@ -487,8 +485,8 @@ example5 = Conjunction
 initialIndividual :: Individual
 initialIndividual = Individual "a"
 
-initialState :: TableauxState
-initialState     = Tableaux {
+initialState :: TableauState
+initialState     = Tableau {
     _frontier    = [CAssertion (toDNF example5) initialIndividual]
   , _intrp       = []
   , _inds        = [initialIndividual]
@@ -516,10 +514,10 @@ uniqueIdentifierPool =
              <*> ['a'..'z']
   in tail seq'
 
-isProvableS :: CGI -> TBox -> ABox -> TableauxState
+isProvableS :: CGI -> TBox -> ABox -> TableauState
 isProvableS cgi tbox abox =
   let
-      initState = initialTableaux tbox abox
+      initState = initialTableau tbox abox
       negatedAss = inverse $ cgiToConcept cgi
       existingInds = initState ^. inds
       ass = CAssertion negatedAss <$> existingInds -- build assertions from cgi for all existing inds
@@ -527,10 +525,10 @@ isProvableS cgi tbox abox =
       ((_intr, _log::String), state) = run . runStateP newState . runMonoidWriter $ solve
   in state
 
-isValidModelS :: TBox -> ABox -> TableauxState
+isValidModelS :: TBox -> ABox -> TableauState
 isValidModelS tbox abox =
   let
-      initState = initialTableaux tbox abox
+      initState = initialTableau tbox abox
       ((_intr, _log::String), state) = run . runStateP initState . runMonoidWriter $ solve
   in state
 
@@ -578,8 +576,8 @@ extractIndividuals = \case
 
 -- | Given a TBox and an ABox, it generates an initial table state
 --
-initialTableaux :: TBox -> ABox -> TableauxState
-initialTableaux cgis ass =
+initialTableau :: TBox -> ABox -> TableauState
+initialTableau cgis ass =
   let
     providedInds = nub $ concatMap extractIndividuals ass -- extract esixting individuals
     allInds = providedInds `orElse` [initialIndividual] -- if none exists, use the default one
@@ -588,7 +586,7 @@ initialTableaux cgis ass =
        cnpt <- newCpts
        CAssertion cnpt <$> allInds
     allAss = newAss <> ass
-  in Tableaux
+  in Tableau
     { _frontier    = allAss
     , _intrp       = []
     , _inds        = allInds
@@ -653,6 +651,11 @@ isEquivalentTo a b = a `Equivalent` b
 simpleCGI :: Concept -> CGI
 simpleCGI = SimpleCGI
 -- simpleCGI c = Not c `isSubsumedBy` Bottom
+
+
+------------------
+-- Concept Task --
+------------------
 
 -- | Given an TBox and and ABox, the funtion checks if the provided CGI
 -- can be proved.

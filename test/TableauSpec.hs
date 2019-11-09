@@ -1,11 +1,11 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-module TableauxSpec (spec) where
+module TableauSpec (spec) where
 
 import Test.Hspec
 import Test.QuickCheck
 
 import HsReasoner.Types
-import HsReasoner.Tableaux
+import HsReasoner.Tableau
 
 -------------------------
 -- Arbitrary instances --
@@ -157,5 +157,5 @@ unitTests =
 --    it "temp: of exampleE should not hold" $
 --      pPrint (isProvableS exampleE [] []) `shouldBe` ""
 
-    it "with >=nC && <=(n-1)C should not be valid" $
-      isValidModel (SimpleCGI <$> [exFconcept1, exFconcept2]) [] `shouldNotBe` True
+--    it "with >=nC && <=(n-1)C should not be valid" $
+--      isValidModel (SimpleCGI <$> [exFconcept1, exFconcept2]) [] `shouldNotBe` True

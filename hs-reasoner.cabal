@@ -23,7 +23,7 @@ library
   hs-source-dirs:     src
 --  ghc-options:        -Wall -Wno-simplifiable-class-constraints -fplugin=Polysemy.Plugin
   ghc-options:        -Wall -Wno-simplifiable-class-constraints
-  exposed-modules:    HsReasoner.Tableaux
+  exposed-modules:    HsReasoner.Tableau
                     , HsReasoner.Types
                     , HsReasoner.Utils
   --other-modules:      HsReasoner.Utils
@@ -45,10 +45,20 @@ test-suite spec
                     , hspec == 2.*
                     , hs-reasoner
                     , QuickCheck
-  other-modules:      TableauxSpec
+  other-modules:      TableauSpec
                     , UtilsSpec
   default-language:   Haskell2010
   build-tool-depends: hspec-discover:hspec-discover == 2.*
+
+Benchmark bench
+  type:               exitcode-stdio-1.0
+  main-is:            TableauBench.hs
+  hs-source-dirs:     bench
+  ghc-options:        -Wall -O2 -threaded -with-rtsopts=-N -rtsopts
+  build-depends:      base >= 4.7 && < 5
+                    , hs-reasoner
+                    , criterion
+  default-language:   Haskell2010
 
 source-repository head
   type:     git

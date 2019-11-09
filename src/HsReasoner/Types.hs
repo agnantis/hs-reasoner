@@ -62,11 +62,11 @@ type ExistIndividual = (Individual, Concept) -- ^ (a,b) where a is a filler indi
 
 data ClashException = ClashException Assertion Assertion deriving (Eq, Show)
 
-data TableauxState = Tableaux
+data TableauState = Tableau
   { _frontier    :: [Assertion]    -- ^ Assertions to be expanded
   , _intrp       :: [Assertion]    -- ^ The current interpretation
   , _inds        :: [Individual]   -- ^ individuals in scope
-  , _status      :: TableauxStatus -- ^ The state of the specific path
+  , _status      :: TableauStatus -- ^ The state of the specific path
   , _roles       :: [UniRole]      -- ^ It holds all visited universal role
   , _indRoles    :: [IndRole]      -- ^ It holds all the filler individual
   , _blocked     :: [BlockedInds]  -- ^ It holds all the blocked individuals
@@ -75,8 +75,8 @@ data TableauxState = Tableaux
   , _existInds   :: [ExistIndividual] -- ^ it holds all the individuals created due to a concept expansion (concept included)
   }
 
-instance Show TableauxState where
-  show Tableaux{..} = unlines
+instance Show TableauState where
+  show Tableau{..} = unlines
     [ "frontier: " <> show _frontier
     , "Intrp:    " <> show _intrp
     , "Inds:     " <> show _inds
@@ -94,7 +94,7 @@ type TBox = [CGI]
 type ABox = [Assertion]
 type KB = (TBox, ABox)
 
-data TableauxStatus
+data TableauStatus
   = ClashFound ClashException
   | Completed
   | Active deriving (Show, Eq)
@@ -103,7 +103,7 @@ type Branch = (Assertion, Assertion)
 
 type Interpretation = Maybe ABox
 -- Some template magic
-makeLenses ''TableauxState
+makeLenses ''TableauState
 
 
 class Pretty a where
@@ -150,8 +150,8 @@ instance Pretty Assertion where
 instance Pretty ClashException where
   pPrint (ClashException c1 c2) = "Clash found between '" ++ pPrint c1 ++ "' and '" ++ pPrint c2 ++ "'"
 
-instance Pretty TableauxState where
-  pPrint Tableaux{..} = intercalate "; " [show _status, delta, rls, cnt, blck]
+instance Pretty TableauState where
+  pPrint Tableau{..} = intercalate "; " [show _status, delta, rls, cnt, blck]
    where
     join :: (Pretty a, Eq a) => [a] -> String
     join = intercalate ", " . fmap pPrint . nub
