@@ -22,6 +22,7 @@ module HsReasoner.Types where
 import           Data.Functor.Foldable          (cata)
 import           Data.Functor.Foldable.TH       (makeBaseFunctor)
 import           Data.List                      (intercalate,  nub)
+import           Data.Map.Strict                (Map)
 import qualified Data.Map.Strict                                    as M
 import           Data.Maybe                     (mapMaybe)
 import           Lens.Micro.Platform
@@ -51,8 +52,15 @@ makeBaseFunctor ''Concept
 
 data CGI
   = SimpleCGI Concept -- ~ Not Concept `Subsumes` Bottom
+  | Disjoint Concept Concept
   | Subsumes Concept Concept
   | Equivalent Concept Concept deriving (Show, Eq)
+
+mapOverCGI :: (Concept -> Concept) -> CGI -> CGI
+mapOverCGI f (SimpleCGI a) = SimpleCGI (f a)
+mapOverCGI f (Disjoint a b) = Disjoint (f a) (f b)
+mapOverCGI f (Subsumes a b) = Subsumes (f a) (f b)
+mapOverCGI f (Equivalent a b) = Equivalent (f a) (f b)
 
 type UniRole = (Role, Concept) -- ^ Represents a ∀R.C (i.e. (R,C)
 type IndRole = (Individual, Role) -- ^ Represents a filler of a role
@@ -71,7 +79,8 @@ data TableauState = Tableau
   , _indRoles    :: [IndRole]      -- ^ It holds all the filler individual
   , _blocked     :: [BlockedInds]  -- ^ It holds all the blocked individuals
   , _uniq        :: [String]       -- ^ A generator of uniq ids
-  , _initialTBox :: [Concept]      -- ^ The initial TBox translated to concepts
+  --, _initialTBox :: [Concept]      -- ^ The initial TBox translated to concepts
+  , _initialTBox :: TBox      -- ^ The initial TBox translated to concepts
   , _existInds   :: [ExistIndividual] -- ^ it holds all the individuals created due to a concept expansion (concept included)
   }
 
@@ -90,7 +99,8 @@ data Assertion
   | RAssertion Role Individual Individual
   | RInvAssertion Role Individual Individual deriving (Show, Eq)
 
-type TBox = [CGI]
+type Terminology = Map Concept Concept
+type TBox = Terminology
 type ABox = [Assertion]
 type KB = (TBox, ABox)
 
@@ -132,9 +142,10 @@ instance Pretty Concept where
     algebra (AtomicF a)        = a
 
 instance Pretty CGI where
-  pPrint (Subsumes a b) = pPrint a ++ " ⊑ " ++ pPrint b
+  pPrint (Subsumes a b)   = pPrint a ++ " ⊑ " ++ pPrint b
+  pPrint (Disjoint a b)   = pPrint a ++ " ⊓ " ++ pPrint b ++ " = ∅ "
   pPrint (Equivalent a b) = pPrint a ++ " ≡ " ++ pPrint b
-  pPrint (SimpleCGI c) = pPrint c
+  pPrint (SimpleCGI c)    = pPrint c
 
 instance Pretty Individual where
   pPrint (Individual i) = i

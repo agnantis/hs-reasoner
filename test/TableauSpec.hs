@@ -1,9 +1,12 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-unused-top-binds #-}
+{-# OPTIONS_GHC -fno-warn-unused-local-binds #-}
 module TableauSpec (spec) where
 
 import Test.Hspec
 import Test.QuickCheck
 
+import qualified Data.Map     as M (empty, fromList, (!))
 import HsReasoner.Types
 import HsReasoner.Tableau
 
@@ -49,11 +52,17 @@ diary      = Atomic "diary"
 eats :: Role
 eats = Role "eats"
 
-veganClass :: CGI
-veganClass = vegan `isEquivalentTo` Conjunction person (ForAll eats plant)
+veganClass :: (Concept, Concept)
+veganClass = (vegan, Conjunction person (ForAll eats plant))
 
-vegeterianClass :: CGI
-vegeterianClass = vegeterian `isEquivalentTo` Conjunction person (ForAll eats (Disjunction plant diary))
+vegeterianClass :: (Concept, Concept)
+vegeterianClass = (vegeterian, Conjunction person (ForAll eats (Disjunction plant diary)))
+
+vegeterianEqualsVegan :: CGI
+vegeterianEqualsVegan = vegeterian `isEquivalentTo` vegan
+
+vegeterianDisjointVegan :: CGI
+vegeterianDisjointVegan = vegeterian `isDisjointWith` vegan
 
 vegeterianIsVegan :: CGI
 vegeterianIsVegan = vegeterian `isSubsumedBy` vegan
@@ -74,8 +83,8 @@ humanHasHumanParent = human `isSubsumedBy` Exists parent human
 humanCGI :: CGI
 humanCGI = SimpleCGI human -- `isSubsumedBy` Top
 
-simpleExistsCGI :: CGI
-simpleExistsCGI = SimpleCGI $ Exists parent human
+simpleExists :: Concept
+simpleExists = Exists parent human
 -- Example C --
 classA, classB :: Concept
 classA = Atomic "A"
@@ -130,32 +139,64 @@ props =
 ------------------
 
 unitTests :: Spec
-unitTests = 
-  describe "The assertion" $ do
-    it "with Exists should terminate" $ 
-      isValidModel [simpleExistsCGI] [] `shouldBe` True
-      
-    it "that a vegan is always a vegeterian should hold" $
-      isProvable veganIsVegeterian [veganClass, vegeterianClass] [] `shouldBe` True
+unitTests = do
+  describe "Concept expansion with" $ do
+    it "empty TBox should return the same concept" $ do
+      let t = Atomic "A"
+          sampleTBox = M.empty
+      expandConcept sampleTBox t `shouldBe` t
+    it "a single definition should get expanded" $ do
+      let sampleTBox = M.fromList [(Atomic "A", Disjunction (Atomic "B") (Atomic "C"))]
+      expandConcept sampleTBox (sampleTBox M.! Atomic "A") `shouldBe` Disjunction (Atomic "B") (Atomic "C")
+    it "many definitions should get expanded till the end" $ do
+      let sampleTBox = M.fromList
+             [ (Atomic "A", Disjunction (Atomic "B") (Atomic "C"))
+             , (Atomic "B", Not (Atomic "D"))
+             , (Atomic "C", Not (Atomic "E"))
+             , (Atomic "D", Conjunction (Atomic "F") (Atomic "C"))]
+      expandConcept sampleTBox (sampleTBox M.! Atomic "A") `shouldBe`
+        Disjunction
+          (Not (Conjunction (Atomic "F") (Not (Atomic "E"))))
+          (Not (Atomic "E"))
+
+  describe "CGI assertion" $ do
+    it "that a vegan is always vegeterian should hold" $
+      isProvable veganIsVegeterian (M.fromList [veganClass, vegeterianClass]) `shouldBe` True
 
     it "that a vegeterian is always vegan should not hold" $
-      isProvable vegeterianIsVegan [veganClass, vegeterianClass] [] `shouldNotBe` True
+      isProvable vegeterianIsVegan (M.fromList [veganClass, vegeterianClass]) `shouldNotBe` True
 
---    it "that a human has at least one human parent should hold" $
---      pPrint (isValidModelS [humanCGI, humanHasHumanParent] []) `shouldBe` ""
+    it "that a vegeterian and a vegan are the same should not hold" $
+      isProvable vegeterianEqualsVegan (M.fromList [veganClass, vegeterianClass]) `shouldNotBe` True
 
-    it "that invalidates 'implies' should not hold" $
-      isValidModel [cgiA, cgiB, cgiC] [] `shouldNotBe` True
+    it "that a vegeterian and a vegan have nothing in common should not hold" $
+      isProvable vegeterianDisjointVegan (M.fromList [veganClass, vegeterianClass]) `shouldNotBe` True
 
-    it "of exampleD should not hold" $
-      isProvable exampleD [] [] `shouldNotBe` True
-  
--- AtMost: not implemented yet
---    it "of exampleE should hold" $
---      isProvable exampleE [] [] `shouldBe` True
---  
---    it "temp: of exampleE should not hold" $
---      pPrint (isProvableS exampleE [] []) `shouldBe` ""
+--  describe "Concept assertion" $ do
 
---    it "with >=nC && <=(n-1)C should not be valid" $
---      isValidModel (SimpleCGI <$> [exFconcept1, exFconcept2]) [] `shouldNotBe` True
+--
+--  |||||||      
+--  |||||||unitTests :: Spec
+--  |||||||unitTests = 
+--  |||||||  describe "The assertion" $ do
+--  |||||||    it "with Exists should terminate" $ 
+--  |||||||      isValidModel [simpleExistsCGI] [] `shouldBe` True
+--  |||||||      
+--  |||||||--    it "that a human has at least one human parent should hold" $
+--  |||||||--      pPrint (isValidModelS [humanCGI, humanHasHumanParent] []) `shouldBe` ""
+--  |||||||
+--  |||||||    it "that invalidates 'implies' should not hold" $
+--  |||||||      isValidModel [cgiA, cgiB, cgiC] [] `shouldNotBe` True
+--  |||||||
+--  |||||||    it "of exampleD should not hold" $
+--  |||||||      isProvable exampleD [] [] `shouldNotBe` True
+--  |||||||  
+--  |||||||-- AtMost: not implemented yet
+--  |||||||--    it "of exampleE should hold" $
+--  |||||||--      isProvable exampleE [] [] `shouldBe` True
+--  |||||||--  
+--  |||||||--    it "temp: of exampleE should not hold" $
+--  |||||||--      pPrint (isProvableS exampleE [] []) `shouldBe` ""
+--  |||||||
+--  |||||||--    it "with >=nC && <=(n-1)C should not be valid" $
+--  |||||||--      isValidModel (SimpleCGI <$> [exFconcept1, exFconcept2]) [] `shouldNotBe` True

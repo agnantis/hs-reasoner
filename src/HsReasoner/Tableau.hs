@@ -15,6 +15,7 @@ module HsReasoner.Tableau where
 import           Control.Monad                  (mapM_, replicateM)
 import           Data.Functor.Foldable          (cata, embed)
 import           Data.List                      (intersect, nub)
+import qualified Data.Map                  as M (empty, findWithDefault, lookup, map)
 import           Data.Maybe                     (fromMaybe, isJust, mapMaybe)
 import           Data.Tuple                     (swap)
 import           Lens.Micro.Platform
@@ -147,7 +148,6 @@ atLeastRule n r c x = do
       pure ()
     else do
       zs <- replicateM n newIndividual
-      traceShow ("new inds: " ++ show zs) $ pure ()
       modify $ inds %~ (zs <>) -- insert new individual
       let newIndRules = (, atLeastC) <$> zs
       modify $ existInds %~ (newIndRules <>) -- insert new individual and the cause of this creation
@@ -432,6 +432,7 @@ getInterpretation = safeHead      -- a single interpretation is enough
 cgiToConcept :: CGI -> Concept
 cgiToConcept (c1 `Subsumes` c2)   = c2 `Implies` c1
 cgiToConcept (c1 `Equivalent` c2) = c1 `IfOnlyIf` c2
+cgiToConcept (c1 `Disjoint` c2) = Disjunction c1 c2 `Implies` Bottom
 cgiToConcept (SimpleCGI c) = c 
 
 
@@ -464,6 +465,32 @@ toDNF = cata algebra
   algebra (IfOnlyIfF a b)          = Disjunction (Conjunction a b) (Conjunction (inverse a) (inverse b))
   algebra c                        = embed c
 
+
+-- | Expand the whole tbox
+--
+expandTBox :: TBox -> TBox
+expandTBox tbox = M.map (expandConcept tbox) tbox
+
+-- | Expand a concept
+--
+expandConcept :: TBox -> Concept -> Concept
+expandConcept tbox = cata algebra
+ where
+  algebra :: ConceptF Concept -> Concept
+  algebra (NotF a)           = Not (expand a)
+  algebra (ConjunctionF a b) = Conjunction (expand a) (expand b)
+  algebra (DisjunctionF a b) = Disjunction (expand a) (expand b)
+  algebra (ExistsF r c)      = Exists r (expand c)
+  algebra (ForAllF r c)      = ForAll r (expand c)
+  algebra (ImpliesF a b)     = Implies (expand a) (expand b)
+  algebra (IfOnlyIfF a b)    = IfOnlyIf (expand a) (expand b)
+  algebra c                  = embed c
+  expand :: Concept -> Concept
+  expand c =
+    case M.lookup c tbox of
+      Nothing -> c
+      Just c' -> expandConcept tbox c'
+
 atomicA, atomicB, atomicC, atomicD :: Concept
 example1, example2, example3, example4, example5 :: Concept
 atomicA = Atomic "A"
@@ -495,7 +522,7 @@ initialState     = Tableau {
   , _indRoles    = []
   , _uniq        = uniqueIdentifierPool
   , _blocked     = []
-  , _initialTBox = []
+  , _initialTBox = M.empty
   , _existInds   = []
   }
 
@@ -514,23 +541,36 @@ uniqueIdentifierPool =
              <*> ['a'..'z']
   in tail seq'
 
-isProvableS :: CGI -> TBox -> ABox -> TableauState
-isProvableS cgi tbox abox =
+isProvableS :: CGI -> TBox -> TableauState
+isProvableS cgi tbox =
   let
-      initState = initialTableau tbox abox
-      negatedAss = inverse $ cgiToConcept cgi
-      existingInds = initState ^. inds
-      ass = CAssertion negatedAss <$> existingInds -- build assertions from cgi for all existing inds
-      newState   =  frontier %~ (ass <>) $ initState
+      expandedTBox = expandTBox tbox
+      expandedCGI = expandCGI cgi expandedTBox
+      initState = initialTableau expandedTBox []
+      negatedAss = inverse $ cgiToConcept expandedCGI
+      ass = CAssertion negatedAss initialIndividual
+      newState =  frontier .~ [ass] $ initState
       ((_intr, _log::String), state) = run . runStateP newState . runMonoidWriter $ solve
   in state
 
-isValidModelS :: TBox -> ABox -> TableauState
-isValidModelS tbox abox =
+isSatisfiableS :: Concept -> TBox -> TableauState
+isSatisfiableS c tbox =
   let
-      initState = initialTableau tbox abox
-      ((_intr, _log::String), state) = run . runStateP initState . runMonoidWriter $ solve
+      expandedTBox = expandTBox tbox
+      expandedC = M.findWithDefault c c expandedTBox
+      initState = initialTableau expandedTBox []
+      ass = CAssertion expandedC initialIndividual
+      newState =  frontier .~ [ass] $ initState
+      ((_intr, _log::String), state) = run . runStateP newState . runMonoidWriter $ solve
   in state
+
+
+-- | expand the concept of a CGI using the definitions provided in the 'TBox' argument
+-- In order for the concepts of the cgi to fully expanded, the provided tbox should be fully
+-- expanded as well
+--
+expandCGI :: CGI -> TBox -> CGI
+expandCGI cgi tbox = mapOverCGI (\c -> M.findWithDefault c c tbox) cgi
 
 
 main :: IO () -- (Interpretation, String)
@@ -577,17 +617,12 @@ extractIndividuals = \case
 -- | Given a TBox and an ABox, it generates an initial table state
 --
 initialTableau :: TBox -> ABox -> TableauState
-initialTableau cgis ass =
+initialTableau tbox abox =
   let
-    providedInds = nub $ concatMap extractIndividuals ass -- extract esixting individuals
+    providedInds = nub $ concatMap extractIndividuals abox -- extract esixting individuals
     allInds = providedInds `orElse` [initialIndividual] -- if none exists, use the default one
-    newCpts = fmap (toDNF . cgiToConcept) cgis
-    newAss = do -- convert cgis to assertions
-       cnpt <- newCpts
-       CAssertion cnpt <$> allInds
-    allAss = newAss <> ass
   in Tableau
-    { _frontier    = allAss
+    { _frontier    = abox
     , _intrp       = []
     , _inds        = allInds
     , _status      = Active
@@ -595,7 +630,7 @@ initialTableau cgis ass =
     , _indRoles    = []
     , _uniq        = uniqueIdentifierPool
     , _blocked     = []
-    , _initialTBox = newCpts
+    , _initialTBox = tbox
     , _existInds   = []
     }
 
@@ -635,23 +670,28 @@ runStateP x = fmap swap . runState x
 -- | Smart constructor of Subsumes CGI
 --
 subsumes :: Concept -> Concept -> CGI
-subsumes a b = a `Subsumes` b
+subsumes = Subsumes
 
 -- | Smart constructor of Subsumes CGI
 --
 isSubsumedBy :: Concept -> Concept -> CGI
-isSubsumedBy a b = b `subsumes` a
+isSubsumedBy = flip subsumes
 
 -- | Smart constructor of Equivalent CGI
 --
 isEquivalentTo :: Concept -> Concept -> CGI
-isEquivalentTo a b = a `Equivalent` b
+isEquivalentTo = Equivalent
+
+-- | Smart constructor of Disjoint CGI
+--
+isDisjointWith :: Concept -> Concept -> CGI
+isDisjointWith = Disjoint
 
 -- | Smart constructor of the Simple CGI
+--
 simpleCGI :: Concept -> CGI
 simpleCGI = SimpleCGI
 -- simpleCGI c = Not c `isSubsumedBy` Bottom
-
 
 ------------------
 -- Concept Task --
@@ -661,16 +701,17 @@ simpleCGI = SimpleCGI
 -- can be proved.
 -- It returns `True` if it can be proved, otherwise it returns `False`
 --
-isProvable :: CGI -> TBox -> ABox -> Bool
-isProvable cgi tbox abox =
-  let state = isProvableS cgi tbox abox
+isProvable :: CGI -> TBox -> Bool
+isProvable cgi tbox =
+  let state = isProvableS cgi tbox
   in  Completed /= state ^. status
 
 -- | The funtion checks if the model described by the provided TBox and ABox
 -- is valid.
 -- It returns `True` if there is a valid model, otherwise it returns `False`
 --
-isValidModel :: TBox -> ABox -> Bool
-isValidModel tbox abox =
-  let state = isValidModelS tbox abox
+isSatisfiable :: Concept -> TBox -> Bool
+isSatisfiable c tbox =
+  let state = isSatisfiableS c tbox
   in  Completed == state ^. status
+
