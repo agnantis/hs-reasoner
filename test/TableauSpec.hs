@@ -74,17 +74,17 @@ veganIsVegeterian = vegan `isSubsumedBy` vegeterian
 human :: Concept
 human = Atomic "human"
 
-parent :: Role
-parent = Role "parent"
+parentR :: Role
+parentR = Role "parent"
 
 humanHasHumanParent :: CGI
-humanHasHumanParent = human `isSubsumedBy` Exists parent human
+humanHasHumanParent = human `isSubsumedBy` Exists parentR human
 
 humanCGI :: CGI
 humanCGI = SimpleCGI human -- `isSubsumedBy` Top
 
 simpleExists :: Concept
-simpleExists = Exists parent human
+simpleExists = Exists parentR human
 -- Example C --
 classA, classB :: Concept
 classA = Atomic "A"
@@ -115,6 +115,87 @@ exFconcept1, exFconcept2 :: Concept
 exFconcept1 = AtLeast 3 roleR Top
 exFconcept2 = AtMost 2 roleR Top
 
+-----------------
+-- Family TBox --
+-----------------
+woman, man, mother, father, parent, grandMother, motherWithManyChildren, motherWithoutDaughter, wife, female :: Concept
+woman = Atomic "Woman"
+man = Atomic "Man"
+mother = Atomic "Mother"
+father = Atomic "Father"
+parent = Atomic "Parent"
+grandMother = Atomic "Grandmother"
+motherWithManyChildren = Atomic "MotherWithManyChildren"
+motherWithoutDaughter = Atomic "MotherWithoutDaughter"
+wife = Atomic "Wife"
+female = Atomic "Female"
+
+hasChild, hasHusband :: Role
+hasChild = Role "hasChild"
+hasHusband = Role "hasHusband"
+
+familyTBox :: TBox
+familyTBox = M.fromList
+  [ (woman, Conjunction person female)
+  , (man, Conjunction person (Not woman))
+  , (mother, Conjunction woman (Exists hasChild person))
+  , (father, Conjunction man (Exists hasChild person))
+  , (parent, Disjunction father mother)
+  , (grandMother, Conjunction mother (Exists hasChild parent))
+  , (motherWithManyChildren, Conjunction mother (AtLeast 3 hasChild Top))
+  , (motherWithoutDaughter, Conjunction mother (ForAll hasChild (Not woman)))
+  , (wife, Conjunction woman (Exists hasHusband man))
+  ]
+
+expandedFamilyTBox :: TBox
+expandedFamilyTBox = M.fromList
+  [ (woman, Conjunction person female)
+  , (man, Conjunction
+            person
+            (Not (Conjunction person female)))
+  , (mother, Conjunction
+              (Conjunction person female)
+              (Exists hasChild person))
+  , (father, Conjunction
+              (Conjunction
+                person
+                (Not (Conjunction person female)))
+              (Exists hasChild person))
+  , (parent, Disjunction
+               (Conjunction
+                 (Conjunction person (Not (Conjunction person female)))
+                 (Exists hasChild person))
+               (Conjunction
+                 (Conjunction person female)
+                 (Exists hasChild person)))
+  , (grandMother, Conjunction
+                    (Conjunction
+                      (Conjunction person female)
+                      (Exists hasChild person))
+                    (Exists hasChild
+                      (Disjunction
+                        (Conjunction
+                          (Conjunction
+                            person
+                            (Not (Conjunction person female)))
+                          (Exists hasChild person))
+                        (Conjunction
+                          (Conjunction person female)
+                          (Exists hasChild person)))))
+  , (motherWithManyChildren, Conjunction
+                              (Conjunction
+                                (Conjunction person female)
+                                (Exists hasChild person))
+                              (AtLeast 3 hasChild Top))
+  , (motherWithoutDaughter, Conjunction
+                              (Conjunction
+                                (Conjunction person female)
+                                (Exists hasChild person))
+                              (ForAll hasChild (Not (Conjunction person female))))
+  , (wife, Conjunction
+             (Conjunction person female)
+             (Exists hasHusband (Conjunction person (Not (Conjunction person female)))))
+  ]
 -------------------
 -- Testing specs --
 -------------------
@@ -141,6 +222,8 @@ props =
 unitTests :: Spec
 unitTests = do
   describe "Concept expansion with" $ do
+    it "expanded TBox should be correct" $
+      expandTBox familyTBox `shouldBe` expandedFamilyTBox
     it "empty TBox should return the same concept" $ do
       let t = Atomic "A"
           sampleTBox = M.empty
@@ -182,7 +265,7 @@ unitTests = do
 --  |||||||    it "with Exists should terminate" $ 
 --  |||||||      isValidModel [simpleExistsCGI] [] `shouldBe` True
 --  |||||||      
---  |||||||--    it "that a human has at least one human parent should hold" $
+--  |||||||--    it "that a human has at least one human parentR should hold" $
 --  |||||||--      pPrint (isValidModelS [humanCGI, humanHasHumanParent] []) `shouldBe` ""
 --  |||||||
 --  |||||||    it "that invalidates 'implies' should not hold" $
