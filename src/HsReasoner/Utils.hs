@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+
 module HsReasoner.Utils where
 
 import           Data.List        (intersect, nub, sort, sortBy)
@@ -60,3 +62,40 @@ distinctSets pl = allSets <> singletons
       case2 = maxDistincts mapTail xs
 
 
+------------------------------
+-- Search for cyclic graphs --
+-- ---------------------------
+
+data Tagged = Tagged | NotTagged deriving (Eq, Show, Ord)
+
+-- | Utility function that given a map with a value 'a' and its dependencies
+-- it returns true when a cycle exists, otherwise returns false
+--
+-- >>> a = 'a'; b = 'b'; c = 'c'; d = 'd'; e = 'e'; f = 'f'
+-- >>> map = M.fromList [(a, [b,c]), (c, [d,e]), (d, [e]), (e, [f])]
+-- >>> containsCycle map
+-- False
+--
+-- >>> map = M.fromList [(a, [b,c]), (c, [d,e]), (d, [e]), (e, [f, a])]
+-- >>> containsCycle map
+-- True
+--
+-- >>> map = M.fromList [(a, [a])]
+-- >>> containsCycle map
+-- True
+--
+-- >>> map = M.fromList [(a, []), (c, []), (d, []), (e, [])]
+-- >>> containsCycle map
+-- False
+containsCycle :: Ord a => Map a [a] -> Bool
+containsCycle m = any (go taggedMap) keys
+  where taggedMap = M.map (NotTagged,) m
+        keys = M.keys m
+        go :: Ord a => Map a (Tagged, [a]) -> a -> Bool
+        go tm a =
+          case M.lookup a tm of
+            Nothing          -> False -- never is going to happen
+            Just (Tagged, _) -> True
+            Just (_, deps)   -> let tm' = M.insert a (Tagged, deps) tm
+                                in  any (go tm') deps
+        
