@@ -71,16 +71,15 @@ type ExistIndividual = (Individual, Concept) -- ^ (a,b) where a is a filler indi
 data ClashException = ClashException Assertion Assertion deriving (Eq, Show)
 
 data TableauState = Tableau
-  { _frontier    :: [Assertion]    -- ^ Assertions to be expanded
-  , _intrp       :: [Assertion]    -- ^ The current interpretation
-  , _inds        :: [Individual]   -- ^ individuals in scope
-  , _status      :: TableauStatus -- ^ The state of the specific path
-  , _roles       :: [UniRole]      -- ^ It holds all visited universal role
-  , _indRoles    :: [IndRole]      -- ^ It holds all the filler individual
-  , _blocked     :: [BlockedInds]  -- ^ It holds all the blocked individuals
-  , _uniq        :: [String]       -- ^ A generator of uniq ids
-  --, _initialTBox :: [Concept]      -- ^ The initial TBox translated to concepts
-  , _initialTBox :: TBox      -- ^ The initial TBox translated to concepts
+  { _frontier    :: [Assertion]       -- ^ Assertions to be expanded
+  , _intrp       :: [Assertion]       -- ^ The current interpretation
+  , _inds        :: [Individual]      -- ^ individuals in scope
+  , _status      :: TableauStatus     -- ^ The state of the specific path
+  , _roles       :: [UniRole]         -- ^ It holds all visited universal role
+  , _indRoles    :: [IndRole]         -- ^ It holds all the filler individual
+  , _blocked     :: [BlockedInds]     -- ^ It holds all the blocked individuals
+  , _uniq        :: [String]          -- ^ A generator of uniq ids
+  , _initialTBox :: TBox              -- ^ The initial TBox translated to concepts
   , _existInds   :: [ExistIndividual] -- ^ it holds all the individuals created due to a concept expansion (concept included)
   }
 
@@ -89,7 +88,7 @@ instance Show TableauState where
     [ "frontier: " <> show _frontier
     , "Intrp:    " <> show _intrp
     , "Inds:     " <> show _inds
-    , "Staus:    " <> show _status
+    , "Status:   " <> show _status
     , "Roles:    " <> show _roles
     , "IndRoles: " <> show _indRoles
     ]

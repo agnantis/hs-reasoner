@@ -15,6 +15,7 @@ module HsReasoner.Tableau where
 import           Control.Monad                  (mapM_, replicateM)
 import           Data.Functor.Foldable          (cata, embed)
 import           Data.List                      (intersect, nub)
+import           Data.Map                       (Map)
 import qualified Data.Map                  as M (empty, findWithDefault, lookup, map)
 import           Data.Maybe                     (fromMaybe, isJust, mapMaybe)
 import           Data.Tuple                     (swap)
@@ -26,6 +27,7 @@ import           Polysemy.Writer
 import           Debug.Trace
 
 import           HsReasoner.Types
+import           HsReasoner.Utils
 
 class Eq a => DLogic a where
   -- | Returns its inverse
@@ -420,6 +422,7 @@ debugAppLn = debugApp . flip (++) "\n"
 debugApp :: Member (Writer String) r => String -> Sem r ()
 debugApp = const . pure $ () -- do nothing
 --debugApp = tell -- log to writer
+--debugApp msg = trace msg (pure ()) -- print to console
 --debugApp msg = trace msg (tell msg) -- print to console and log to writer
 
 -- | Provided a list of @TableauState it tries to find and return the first
@@ -474,7 +477,7 @@ expandTBox tbox = M.map (expandConcept tbox) tbox
 -- | Expand a concept
 --
 expandConcept :: TBox -> Concept -> Concept
-expandConcept tbox = cata algebra
+expandConcept tbox = toDNF . cata algebra
  where
   algebra :: ConceptF Concept -> Concept
   algebra (NotF a)           = Not (expand a)
@@ -490,6 +493,26 @@ expandConcept tbox = cata algebra
     case M.lookup c tbox of
       Nothing -> c
       Just c' -> expandConcept tbox c'
+
+-- | Extract concept dependencies
+--
+extractDependencies :: Concept -> [Concept]
+extractDependencies = cata algebra
+ where
+  algebra :: ConceptF [Concept] -> [Concept]
+  algebra (AtomicF t)        = [Atomic t]
+  algebra (NotF a)           = a
+  algebra (ConjunctionF a b) = a <> b
+  algebra (DisjunctionF a b) = a <> b
+  algebra (ExistsF _ c)      = c
+  algebra (ForAllF _ c)      = c
+  algebra (ImpliesF a b)     = a <> b 
+  algebra (IfOnlyIfF a b)    = a <> b
+  algebra (AtMostF _ _ a)    = a
+  algebra (AtLeastF _ _ a)   = a
+  algebra BottomF            = []
+  algebra TopF               = []
+
 
 atomicA, atomicB, atomicC, atomicD :: Concept
 example1, example2, example3, example4, example5 :: Concept
@@ -542,22 +565,13 @@ uniqueIdentifierPool =
   in tail seq'
 
 isProvableS :: CGI -> TBox -> TableauState
-isProvableS cgi tbox =
-  let
-      expandedTBox = expandTBox tbox
-      expandedCGI = expandCGI cgi expandedTBox
-      initState = initialTableau expandedTBox []
-      negatedAss = inverse $ cgiToConcept expandedCGI
-      ass = CAssertion negatedAss initialIndividual
-      newState =  frontier .~ [ass] $ initState
-      ((_intr, _log::String), state) = run . runStateP newState . runMonoidWriter $ solve
-  in state
+isProvableS cgi = isSatisfiableS (inverse . cgiToConcept $ cgi)
 
 isSatisfiableS :: Concept -> TBox -> TableauState
 isSatisfiableS c tbox =
   let
       expandedTBox = expandTBox tbox
-      expandedC = M.findWithDefault c c expandedTBox
+      expandedC = toDNF . expandConcept expandedTBox $ c
       initState = initialTableau expandedTBox []
       ass = CAssertion expandedC initialIndividual
       newState =  frontier .~ [ass] $ initState
@@ -598,13 +612,8 @@ main = do
 -- Utilities --
 ---------------
 
-safeHead :: [a] -> Maybe a
-safeHead [] = Nothing
-safeHead (x:_) = Just x
-
-safeTail :: [a] -> Maybe [a]
-safeTail [] = Nothing
-safeTail (_:xs) = Just xs
+graphFromTBox :: TBox -> Map Concept [Concept]
+graphFromTBox = M.map extractDependencies
 
 -- | Given an assertion, extracts the involved individuals
 --

@@ -6,9 +6,10 @@ module TableauSpec (spec) where
 import Test.Hspec
 import Test.QuickCheck
 
-import qualified Data.Map     as M (empty, fromList, (!))
+import qualified Data.Map     as M (empty, fromList, insert, map, (!))
 import HsReasoner.Types
 import HsReasoner.Tableau
+import HsReasoner.Utils
 
 -------------------------
 -- Arbitrary instances --
@@ -118,7 +119,7 @@ exFconcept2 = AtMost 2 roleR Top
 -----------------
 -- Family TBox --
 -----------------
-woman, man, mother, father, parent, grandMother, motherWithManyChildren, motherWithoutDaughter, wife, female :: Concept
+woman, man, mother, father, parent, grandMother, motherWithManyChildren, motherWithoutDaughter, wife, female, hole :: Concept
 woman = Atomic "Woman"
 man = Atomic "Man"
 mother = Atomic "Mother"
@@ -129,6 +130,7 @@ motherWithManyChildren = Atomic "MotherWithManyChildren"
 motherWithoutDaughter = Atomic "MotherWithoutDaughter"
 wife = Atomic "Wife"
 female = Atomic "Female"
+hole = Atomic "Hole"
 
 hasChild, hasHusband :: Role
 hasChild = Role "hasChild"
@@ -148,7 +150,7 @@ familyTBox = M.fromList
   ]
 
 expandedFamilyTBox :: TBox
-expandedFamilyTBox = M.fromList
+expandedFamilyTBox = M.map toDNF . M.fromList $
   [ (woman, Conjunction person female)
   , (man, Conjunction
             person
@@ -221,6 +223,13 @@ props =
 
 unitTests :: Spec
 unitTests = do
+  describe "Check for cyclic TBox definitions" $ do
+    it "family TBox has no cyclic dependency" $
+       containsCycle (graphFromTBox familyTBox) `shouldBe` False
+    it "family TBox with a cycle is has cyclic dependency" $ do
+       let cTBox = M.insert female (Not man) familyTBox 
+       containsCycle (graphFromTBox cTBox) `shouldBe` True
+
   describe "Concept expansion with" $ do
     it "expanded TBox should be correct" $
       expandTBox familyTBox `shouldBe` expandedFamilyTBox
@@ -238,9 +247,14 @@ unitTests = do
              , (Atomic "C", Not (Atomic "E"))
              , (Atomic "D", Conjunction (Atomic "F") (Atomic "C"))]
       expandConcept sampleTBox (sampleTBox M.! Atomic "A") `shouldBe`
-        Disjunction
+        toDNF (Disjunction
           (Not (Conjunction (Atomic "F") (Not (Atomic "E"))))
-          (Not (Atomic "E"))
+          (Not (Atomic "E")))
+
+  describe "Disjoint classes" $
+    it "Woman is disjoint to Man" $ do
+      let manAndWoman = man `isDisjointWith` woman
+      isProvable manAndWoman (expandTBox familyTBox) `shouldBe` False
 
   describe "CGI assertion" $ do
     it "that a vegan is always vegeterian should hold" $

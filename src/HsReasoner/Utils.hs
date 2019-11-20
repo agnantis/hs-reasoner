@@ -37,6 +37,10 @@ safeHead :: [a] -> Maybe a
 safeHead []    = Nothing
 safeHead (x:_) = Just x
 
+safeTail :: [a] -> Maybe [a]
+safeTail [] = Nothing
+safeTail (_:xs) = Just xs
+
 distinctSets :: (Show a, Ord a) => [(a, a)] -> [[a]]
 distinctSets pl = allSets <> singletons
  where
@@ -88,7 +92,7 @@ data Tagged = Tagged | NotTagged deriving (Eq, Show, Ord)
 -- >>> containsCycle map
 -- False
 containsCycle :: Ord a => Map a [a] -> Bool
-containsCycle m = any (go taggedMap) keys
+containsCycle m = any (go taggedMap) keys -- TODO: can be optimised by passing the "visited" keys to the next key
   where taggedMap = M.map (NotTagged,) m
         keys = M.keys m
         go :: Ord a => Map a (Tagged, [a]) -> a -> Bool
@@ -98,4 +102,3 @@ containsCycle m = any (go taggedMap) keys
             Just (Tagged, _) -> True
             Just (_, deps)   -> let tm' = M.insert a (Tagged, deps) tm
                                 in  any (go tm') deps
-        
