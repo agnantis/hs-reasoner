@@ -5,27 +5,40 @@ echo "Initializing environment for 'hs-reasoner' project..."
 SESSION=`basename $PWD`
 
 tmux -2 new-session -d -s $SESSION
+tmux rename-window IDE
+# EDITOR
 tmux send-keys "nix-shell" C-m
 tmux send-keys "cd src" C-m
 tmux send-keys "nvim" C-m
+
+# REPL
 tmux split-window -h
-tmux resize-pane -R 10
-tmux send-keys "nix-shell" C-m
-tmux send-keys "ghcid --command='cabal new-repl'" C-m
-tmux split-window -v
-sleep 5
+tmux resize-pane -x 100
 tmux send-keys "nix-shell" C-m
 tmux send-keys "cabal new-repl" C-m
+
+# DOC-TESTS
 tmux split-window -v
-tmux send-keys "nix-shell" C-m
-tmux send-keys "find . -type f -name \"*.hs\" | entr hlint src/" C-m
-tmux split-window -v
+tmux resize-pane -y 15
 tmux send-keys "nix-shell" C-m
 tmux send-keys "find . -type f -name \"*.hs\" | entr doctest src/" C-m
+tmux select-pane -t 0
 
-tmux select-pane -t:.0
-# tmux split-window -v
-# tmux send-keys "nvim res/example.owl" C-m
-# tmux resize-pane -D 8
+# second window - testing
+
+# EDITOR - TESTS
+tmux new-window -n TESTING
+tmux send-keys "nix-shell" C-m
+tmux send-keys "nvim" C-m
+
+# TESTS
+tmux split-window -h -p 35
+tmux send-keys "nix-shell" C-m
+tmux send-keys "find . -type f -name \"*.hs\" | entr cabal new-test --test-option=--color" C-m
+tmux select-pane -t 0
+
+# back to IDE
+tmux select-window -t 0
+
+# attach to session
 tmux -2 attach -t $SESSION
-tmux rename-window -t $SESSION:1 IDE

@@ -17,7 +17,7 @@ import HsReasoner.Utils
 
 instance Arbitrary Concept where
   arbitrary = do
-    lbl <- arbitrary
+    lbl <- oneof . fmap (pure . pure) $ ['A' .. 'Z'] -- Gen . String
     c1  <- arbitrary
     c2  <- arbitrary
     r1  <- arbitrary
@@ -30,9 +30,11 @@ instance Arbitrary Concept where
       atl  = Exists r1 c1
       fora = ForAll r1 c1
       atm  = Atomic lbl
-    oneof . fmap pure $ [atm, nt]  -- conj, dis, nt, impl, ifif, atl, fora, atm]
+      btm  = Bottom
+      top  = Top
+    oneof . fmap pure $ [atm, nt, btm, top]  -- conj, dis, nt, impl, ifif, atl, fora, atm]
                                   -- NOTE: not included otherwise property test never ends 
-     
+
 instance Arbitrary Role where
   arbitrary = Role <$> arbitrary
 
@@ -59,17 +61,17 @@ veganClass = (vegan, Conjunction person (ForAll eats plant))
 vegeterianClass :: (Concept, Concept)
 vegeterianClass = (vegeterian, Conjunction person (ForAll eats (Disjunction plant diary)))
 
-vegeterianEqualsVegan :: CGI
+vegeterianEqualsVegan :: GCI
 vegeterianEqualsVegan = vegeterian `isEquivalentTo` vegan
 
-vegeterianDisjointVegan :: CGI
+vegeterianDisjointVegan :: GCI
 vegeterianDisjointVegan = vegeterian `isDisjointWith` vegan
 
-vegeterianIsVegan :: CGI
+vegeterianIsVegan :: GCI
 vegeterianIsVegan = vegeterian `isSubsumedBy` vegan
 
-veganIsVegeterian :: CGI
-veganIsVegeterian = vegan `isSubsumedBy` vegeterian 
+veganIsVegeterian :: GCI
+veganIsVegeterian = vegan `isSubsumedBy` vegeterian
 
 -- Example B --
 human :: Concept
@@ -78,11 +80,8 @@ human = Atomic "human"
 parentR :: Role
 parentR = Role "parent"
 
-humanHasHumanParent :: CGI
+humanHasHumanParent :: GCI
 humanHasHumanParent = human `isSubsumedBy` Exists parentR human
-
-humanCGI :: CGI
-humanCGI = SimpleCGI human -- `isSubsumedBy` Top
 
 simpleExists :: Concept
 simpleExists = Exists parentR human
@@ -91,10 +90,10 @@ classA, classB :: Concept
 classA = Atomic "A"
 classB = Atomic "B"
 
-cgiA, cgiB, cgiC :: CGI
-cgiA = simpleCGI $ classA `Implies` classB
-cgiB = simpleCGI classA
-cgiC = simpleCGI $ Not classB
+-- cgiA, cgiB, cgiC :: GCI
+-- cgiA = simpleGCI $ classA `Implies` classB
+-- cgiB = simpleGCI classA
+-- cgiC = simpleGCI $ Not classB
 
 -- Example D --
 roleR :: Role
@@ -106,10 +105,10 @@ concept2 = Exists roleR classB
 concept3 = AtMost 1 roleR Top
 concept4 = Exists roleR (Conjunction classA classB)
 
-exampleD :: CGI
+exampleD :: GCI
 exampleD = Conjunction concept1 concept2 `isSubsumedBy` concept4
 
-exampleE :: CGI
+exampleE :: GCI
 exampleE = Conjunction concept1 (Conjunction concept2 concept3) `isSubsumedBy` concept4
 
 exFconcept1, exFconcept2 :: Concept
@@ -211,11 +210,27 @@ spec = do
 -- Property testing --
 ----------------------
 
+inclusionProp :: Concept -> Concept -> Bool
+inclusionProp c1 c2 =
+  let gci = c1 `isSubsumedBy` Disjunction c1 c2
+  in isProvable gci M.empty
+
+exclusionProp :: Concept -> Concept -> Bool
+exclusionProp c1 c2 =
+  let gci = c1 `subsumes` Conjunction c1 c2
+  in isProvable gci M.empty
+
 props :: Spec
-props = 
-  describe "inverse" $ 
+props = do
+  describe "inverse" $
     it "when inversed is like id" $
       property $ \x -> (inverse . inverse) (toDNF x) == toDNF (x :: Concept)
+  describe "satifiability" $ do
+    it "a disjunction of two concept should subsumes one concept" $
+      property inclusionProp
+    it "a conjunctionof two concept should by subsumed by one concept" $
+      property exclusionProp
+
 
 ------------------
 -- Unit testing --
@@ -227,7 +242,7 @@ unitTests = do
     it "family TBox has no cyclic dependency" $
        containsCycle (graphFromTBox familyTBox) `shouldBe` False
     it "family TBox with a cycle is has cyclic dependency" $ do
-       let cTBox = M.insert female (Not man) familyTBox 
+       let cTBox = M.insert female (Not man) familyTBox
        containsCycle (graphFromTBox cTBox) `shouldBe` True
 
   describe "Concept expansion with" $ do
@@ -256,7 +271,7 @@ unitTests = do
       let manAndWoman = man `isDisjointWith` woman
       isProvable manAndWoman (expandTBox familyTBox) `shouldBe` False
 
-  describe "CGI assertion" $ do
+  describe "GCI assertion" $ do
     it "that a vegan is always vegeterian should hold" $
       isProvable veganIsVegeterian (M.fromList [veganClass, vegeterianClass]) `shouldBe` True
 
@@ -269,31 +284,3 @@ unitTests = do
     it "that a vegeterian and a vegan have nothing in common should not hold" $
       isProvable vegeterianDisjointVegan (M.fromList [veganClass, vegeterianClass]) `shouldNotBe` True
 
---  describe "Concept assertion" $ do
-
---
---  |||||||      
---  |||||||unitTests :: Spec
---  |||||||unitTests = 
---  |||||||  describe "The assertion" $ do
---  |||||||    it "with Exists should terminate" $ 
---  |||||||      isValidModel [simpleExistsCGI] [] `shouldBe` True
---  |||||||      
---  |||||||--    it "that a human has at least one human parentR should hold" $
---  |||||||--      pPrint (isValidModelS [humanCGI, humanHasHumanParent] []) `shouldBe` ""
---  |||||||
---  |||||||    it "that invalidates 'implies' should not hold" $
---  |||||||      isValidModel [cgiA, cgiB, cgiC] [] `shouldNotBe` True
---  |||||||
---  |||||||    it "of exampleD should not hold" $
---  |||||||      isProvable exampleD [] [] `shouldNotBe` True
---  |||||||  
---  |||||||-- AtMost: not implemented yet
---  |||||||--    it "of exampleE should hold" $
---  |||||||--      isProvable exampleE [] [] `shouldBe` True
---  |||||||--  
---  |||||||--    it "temp: of exampleE should not hold" $
---  |||||||--      pPrint (isProvableS exampleE [] []) `shouldBe` ""
---  |||||||
---  |||||||--    it "with >=nC && <=(n-1)C should not be valid" $
---  |||||||--      isValidModel (SimpleCGI <$> [exFconcept1, exFconcept2]) [] `shouldNotBe` True

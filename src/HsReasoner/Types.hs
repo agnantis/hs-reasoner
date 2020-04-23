@@ -50,17 +50,15 @@ data Concept
 
 makeBaseFunctor ''Concept
 
-data CGI
-  = SimpleCGI Concept -- ~ Not Concept `Subsumes` Bottom
-  | Disjoint Concept Concept
+data GCI
+  = Disjoint Concept Concept
   | Subsumes Concept Concept
   | Equivalent Concept Concept deriving (Show, Eq)
 
-mapOverCGI :: (Concept -> Concept) -> CGI -> CGI
-mapOverCGI f (SimpleCGI a) = SimpleCGI (f a)
-mapOverCGI f (Disjoint a b) = Disjoint (f a) (f b)
-mapOverCGI f (Subsumes a b) = Subsumes (f a) (f b)
-mapOverCGI f (Equivalent a b) = Equivalent (f a) (f b)
+mapOverGCI :: (Concept -> Concept) -> GCI -> GCI
+mapOverGCI f (Disjoint a b) = Disjoint (f a) (f b)
+mapOverGCI f (Subsumes a b) = Subsumes (f a) (f b)
+mapOverGCI f (Equivalent a b) = Equivalent (f a) (f b)
 
 type UniRole = (Role, Concept) -- ^ Represents a ∀R.C (i.e. (R,C)
 type IndRole = (Individual, Role) -- ^ Represents a filler of a role
@@ -140,11 +138,10 @@ instance Pretty Concept where
     algebra (AtLeastF n r c)   = "(" ++ "≥" ++ show n ++ pPrint r ++ "." ++ c ++ ")"
     algebra (AtomicF a)        = a
 
-instance Pretty CGI where
+instance Pretty GCI where
   pPrint (Subsumes a b)   = pPrint a ++ " ⊑ " ++ pPrint b
   pPrint (Disjoint a b)   = pPrint a ++ " ⊓ " ++ pPrint b ++ " = ∅ "
   pPrint (Equivalent a b) = pPrint a ++ " ≡ " ++ pPrint b
-  pPrint (SimpleCGI c)    = pPrint c
 
 instance Pretty Individual where
   pPrint (Individual i) = i

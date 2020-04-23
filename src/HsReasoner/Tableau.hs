@@ -24,8 +24,6 @@ import           Polysemy
 import           Polysemy.State
 import           Polysemy.Writer
 
-import           Debug.Trace
-
 import           HsReasoner.Types
 import           HsReasoner.Utils
 
@@ -126,15 +124,15 @@ atMostRule = undefined
 -- | GreaterEqual rule expansion. A more general version of existensial quantifier
 --
 atLeastRule :: Member (State TableauState) r
-              => Int
-              -> Role
-              -> Concept
-              -> Individual
-              -> Sem r ()
+            => Int
+            -> Role
+            -> Concept
+            -> Individual
+            -> Sem r ()
 atLeastRule n r c x = do
   let atLeastC = AtLeast n r c
   ex <- roleFillers r c x
-  -- traceShow ("Exists: " ++ show indExists) $ pure ()
+  --traceShow ("Exists: " ++ show indExists) $ pure ()
   if length ex >= n -- check if there are existing individuals
   then
     pure ()
@@ -235,19 +233,19 @@ findBlockingNodes :: Member (State TableauState) r
 findBlockingNodes i r c = do
   state        <- get
   roleParents  <- roleParent r (Just i) -- get parents of i
-  sameRuleInds <- fromSameRule c 
+  sameRuleInds <- fromSameRule c
   let possibleParents = dropUntil (/=i) . view inds $ state
   pure $ possibleParents `intersect` roleParents `intersect` sameRuleInds
-  
+
 -- | Replace an individual in the assertion with another and return the new assertion
 --
 replaceIndividual :: Individual -> Individual -> Assertion -> Assertion
-replaceIndividual x y cpt@(CAssertion c a) = if a /= x then cpt else CAssertion c y 
+replaceIndividual x y cpt@(CAssertion c a) = if a /= x then cpt else CAssertion c y
 replaceIndividual x y (RAssertion r a b) =
   let a' = if a == x then y else a
       b' = if b == x then y else b
   in RAssertion r a' b'
-replaceIndividual x y (RInvAssertion r a b) = 
+replaceIndividual x y (RInvAssertion r a b) =
   let a' = if a == x then y else a
       b' = if b == x then y else b
   in RInvAssertion r a' b'
@@ -290,7 +288,7 @@ fillers rl mi = do
     ids = mapMaybe (fltr rl mi)
         . view intrp
         $ st
-    fltr :: Role -> Maybe Individual -> Assertion -> Maybe Individual  
+    fltr :: Role -> Maybe Individual -> Assertion -> Maybe Individual
     fltr r Nothing  (RAssertion r' _ y) = if r == r' then Just y else Nothing
     fltr r (Just i) (RAssertion r' z y) = if r == r' && i == z then Just y else Nothing
     fltr _ _ _                          = Nothing
@@ -305,7 +303,7 @@ roleParent r mi = do
   let ids = mapMaybe (fltr r mi)
           . view intrp
           $ st
-      fltr :: Role -> Maybe Individual -> Assertion -> Maybe Individual  
+      fltr :: Role -> Maybe Individual -> Assertion -> Maybe Individual
       fltr ar Nothing  (RAssertion r' x _) = if ar == r' then Just x else Nothing
       fltr ar (Just i) (RAssertion r' x y) = if ar == r' && i == y then Just x else Nothing
       fltr _ _ _                           = Nothing
@@ -387,7 +385,7 @@ solve = do
           stt <- get
           debugAppLn $ "Remaining assertions: " ++ (show . length . view frontier $ stt)
           solve -- continue
-        
+
         Right(Just(a, b)) -> do -- or block
           let newStates :: [(TableauState, String)]
               newStates = do -- create branched states and run them
@@ -399,7 +397,7 @@ solve = do
             (Just state) -> do
               put state -- set the state as the final one
               pure . Just . view intrp $ state -- return its interpretation
-            
+
             Nothing -> do
               put . head . map fst $ newStates -- all branches clash. Just select one of them
               pure Nothing -- no valid interpretation
@@ -432,11 +430,10 @@ getInterpretation :: [TableauState] -> Maybe TableauState
 getInterpretation = safeHead      -- a single interpretation is enough
                   . filter ((== Completed) . view status) -- get only the completed tableau
 
-cgiToConcept :: CGI -> Concept
+cgiToConcept :: GCI -> Concept
 cgiToConcept (c1 `Subsumes` c2)   = c2 `Implies` c1
 cgiToConcept (c1 `Equivalent` c2) = c1 `IfOnlyIf` c2
 cgiToConcept (c1 `Disjoint` c2) = Disjunction c1 c2 `Implies` Bottom
-cgiToConcept (SimpleCGI c) = c 
 
 
 isRoleAssertion :: Assertion -> Bool
@@ -506,7 +503,7 @@ extractDependencies = cata algebra
   algebra (DisjunctionF a b) = a <> b
   algebra (ExistsF _ c)      = c
   algebra (ForAllF _ c)      = c
-  algebra (ImpliesF a b)     = a <> b 
+  algebra (ImpliesF a b)     = a <> b
   algebra (IfOnlyIfF a b)    = a <> b
   algebra (AtMostF _ _ a)    = a
   algebra (AtLeastF _ _ a)   = a
@@ -559,32 +556,18 @@ initialState     = Tableau {
 --
 uniqueIdentifierPool :: [String]
 uniqueIdentifierPool =
-  let seq' = flip (:) 
+  let seq' = flip (:)
              <$> "" : fmap (show @Int) [1 ..]
              <*> ['a'..'z']
   in tail seq'
 
-isProvableS :: CGI -> TBox -> TableauState
-isProvableS cgi = isSatisfiableS (inverse . cgiToConcept $ cgi)
 
-isSatisfiableS :: Concept -> TBox -> TableauState
-isSatisfiableS c tbox =
-  let
-      expandedTBox = expandTBox tbox
-      expandedC = toDNF . expandConcept expandedTBox $ c
-      initState = initialTableau expandedTBox []
-      ass = CAssertion expandedC initialIndividual
-      newState =  frontier .~ [ass] $ initState
-      ((_intr, _log::String), state) = run . runStateP newState . runMonoidWriter $ solve
-  in state
-
-
--- | expand the concept of a CGI using the definitions provided in the 'TBox' argument
+-- | expand the concept of a GCI using the definitions provided in the 'TBox' argument
 -- In order for the concepts of the cgi to fully expanded, the provided tbox should be fully
 -- expanded as well
 --
-expandCGI :: CGI -> TBox -> CGI
-expandCGI cgi tbox = mapOverCGI (\c -> M.findWithDefault c c tbox) cgi
+expandGCI :: GCI -> TBox -> GCI
+expandGCI cgi tbox = mapOverGCI (\c -> M.findWithDefault c c tbox) cgi
 
 
 main :: IO () -- (Interpretation, String)
@@ -676,51 +659,62 @@ runStateP x = fmap swap . runState x
 -- Public API --
 ----------------
 
--- | Smart constructor of Subsumes CGI
+-- | Smart constructor of Subsumes GCI
 --
-subsumes :: Concept -> Concept -> CGI
+subsumes :: Concept -> Concept -> GCI
 subsumes = Subsumes
 
--- | Smart constructor of Subsumes CGI
+-- | Smart constructor of Subsumes GCI
 --
-isSubsumedBy :: Concept -> Concept -> CGI
+isSubsumedBy :: Concept -> Concept -> GCI
 isSubsumedBy = flip subsumes
 
--- | Smart constructor of Equivalent CGI
+-- | Smart constructor of Equivalent GCI
 --
-isEquivalentTo :: Concept -> Concept -> CGI
+isEquivalentTo :: Concept -> Concept -> GCI
 isEquivalentTo = Equivalent
 
--- | Smart constructor of Disjoint CGI
+-- | Smart constructor of Disjoint GCI
 --
-isDisjointWith :: Concept -> Concept -> CGI
+isDisjointWith :: Concept -> Concept -> GCI
 isDisjointWith = Disjoint
-
--- | Smart constructor of the Simple CGI
---
-simpleCGI :: Concept -> CGI
-simpleCGI = SimpleCGI
--- simpleCGI c = Not c `isSubsumedBy` Bottom
 
 ------------------
 -- Concept Task --
 ------------------
 
--- | Given an TBox and and ABox, the funtion checks if the provided CGI
--- can be proved.
+-- | Given a TBox, the function checks if the provided GCI can be proved,
+-- by proving that the inverted GCI is not satisfiable.
 -- It returns `True` if it can be proved, otherwise it returns `False`
 --
-isProvable :: CGI -> TBox -> Bool
+isProvable :: GCI -> TBox -> Bool
 isProvable cgi tbox =
   let state = isProvableS cgi tbox
   in  Completed /= state ^. status
 
--- | The funtion checks if the model described by the provided TBox and ABox
--- is valid.
--- It returns `True` if there is a valid model, otherwise it returns `False`
+-- | TODO: It is used only for debugging purposes 
+--
+isProvableS :: GCI -> TBox -> TableauState
+isProvableS cgi = isSatisfiableS (inverse . cgiToConcept $ cgi)
+
+-- | Given a TBox, the function checks if the provided Concept is satisfiable,
+-- i.e., has a valid interpretation (model).
+-- It returns `True` if it is satisfiable, otherwise it returns `False`
 --
 isSatisfiable :: Concept -> TBox -> Bool
 isSatisfiable c tbox =
   let state = isSatisfiableS c tbox
   in  Completed == state ^. status
 
+-- | TODO: It is used only for debugging purposes 
+--
+isSatisfiableS :: Concept -> TBox -> TableauState
+isSatisfiableS c tbox =
+  let
+      expandedTBox = expandTBox tbox
+      expandedC = toDNF . expandConcept expandedTBox $ c
+      initState = initialTableau expandedTBox []
+      ass = CAssertion expandedC initialIndividual
+      newState =  frontier .~ [ass] $ initState
+      ((_intr, _log::String), state) = run . runStateP newState . runMonoidWriter $ solve
+  in state
