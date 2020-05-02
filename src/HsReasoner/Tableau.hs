@@ -12,7 +12,7 @@
 
 module HsReasoner.Tableau where
 
-import           Control.Monad                  (mapM_, replicateM)
+import           Control.Monad                  (mapM_, replicateM, when)
 import           Data.Functor.Foldable          (cata, embed)
 import           Data.List                      (intersect, nub)
 import           Data.Map                       (Map)
@@ -119,7 +119,10 @@ atMostRule :: Member (State TableauState) r
            -> Concept
            -> Individual
            -> Sem r ()
-atMostRule = undefined
+atMostRule n r c x = do
+  ex <- roleFillers r c x
+  when (length ex >= n) $ do
+    undefined
 
 -- | GreaterEqual rule expansion. A more general version of existensial quantifier
 --
@@ -133,29 +136,22 @@ atLeastRule n r c x = do
   let atLeastC = AtLeast n r c
   ex <- roleFillers r c x
   --traceShow ("Exists: " ++ show indExists) $ pure ()
-  if length ex >= n -- check if there are existing individuals
-  then
-    pure ()
-  else do
+  when (length ex < n) $ do -- check if there are existing individuals
     blockingNodes <- findBlockingNodes x r atLeastC
     -- traceShow ("Blocking: " ++ show blockingNodes) $ pure ()
     if (not . null) blockingNodes
     then do
-      let blocker = head blockingNodes
+      let blocker = head blockingNodes -- just set the first blocker and assosiate them
       modify $ blocked %~ ((x, blocker):) -- add node to the blocking ones
       removeBlockedAssertions x -- remove assertion of blocked individuals
-      modify $ intrp %~ fmap (replaceIndividual x blocker) -- update interpretation; replace any reference to to the blocked individual with the blocking one
-      pure ()
+      modify $ intrp %~ fmap (replaceIndividual x blocker) -- update interpretation; replace any reference to the blocked individual with its blocker
     else do
-      zs <- replicateM n newIndividual
-      modify $ inds %~ (zs <>) -- insert new individual
+      zs <- replicateM n newIndividual -- generate n individuals
+      modify $ inds %~ (zs <>) -- insert them to the interpretation
       let newIndRules = (, atLeastC) <$> zs
       modify $ existInds %~ (newIndRules <>) -- insert new individual and the cause of this creation
-      let
-        newAssertions = concat $ (\i -> [CAssertion c i, RAssertion r x i]) <$> zs
+      let newAssertions = concat $ (\i -> [CAssertion c i, RAssertion r x i]) <$> zs
       modify $ frontier %~ (<> newAssertions)
-      pure ()
-
 
 -- | Role assertion rule expansion
 --
@@ -220,7 +216,7 @@ addToInterpretation ci = do
       pure . Left $ exc
     Nothing -> do -- No clash
       debugAppLn $ "Adding " <> pPrint ci <> " to Interpretation"
-      modify $ intrp %~ (ci:) -- add assertion to interpretarion
+      modify $ intrp %~ (ci:) -- add assertion to interpretation
       pure . Right $ Nothing
 
 -- | It tries to find all the possible blocking individuals of the input individual
